@@ -48,6 +48,9 @@ typedef struct {
     char pass[MAX_STR_LEN];
     int fetch_thumbs; 
     int catalog_rows;
+    /* Contraseña tal como está guardada (cifrada) y si sigue bloqueada por PIN. */
+    char pass_stored[MAX_STR_LEN * 2];
+    int pass_locked;
 } OPDSServer;
 
 typedef struct {
@@ -151,6 +154,10 @@ void LoadCatalog(const char *url);
 void Repaint();
 void SaveServers();
 void LoadServers();
+void UnlockLockedServerPasswords(void);
+void ForgetLockedServerPasswords(void);
+int AnyServerPasswordLocked(void);
+extern char credentials_warning[MAX_STR_LEN];
 
 #include "i18n.h"
 

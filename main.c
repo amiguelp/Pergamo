@@ -1,4 +1,5 @@
 #include "opds_app.h"
+#include "secrets.h"
 #include "launcher_icon.h"
 #include <inkview.h>
 #include <errno.h>
@@ -226,6 +227,14 @@ void SaveServers() {
     }
 
     WriteInt(cfg, "server_count", server_count);
+
+    char crypto_salt[64], crypto_check[256];
+    int crypto_pin = 0;
+    SecretsGetParams(crypto_salt, sizeof(crypto_salt), &crypto_pin,
+                     crypto_check, sizeof(crypto_check));
+    WriteString(cfg, "crypto_salt", crypto_salt);
+    WriteInt(cfg, "crypto_pin", crypto_pin);
+    WriteString(cfg, "crypto_check", crypto_check);
     
     for (int i = 0; i < server_count; i++) {
         char key[64];
@@ -239,8 +248,17 @@ void SaveServers() {
         snprintf(key, sizeof(key), "server_%d_user", i); 
         WriteString(cfg, key, servers[i].user);
         
+        /* Nunca en texto plano: si sigue bloqueada por PIN se guarda tal
+           cual estaba; si no, se cifra de nuevo. */
+        if (!servers[i].pass_locked) {
+            if (SecretsEncrypt(servers[i].pass, servers[i].pass_stored,
+                               sizeof(servers[i].pass_stored)) != 0) {
+                LogDebug("Secrets: no se pudo cifrar una contraseña; no se guarda.");
+                servers[i].pass_stored[0] = '\0';
+            }
+        }
         snprintf(key, sizeof(key), "server_%d_pass", i); 
-        WriteString(cfg, key, servers[i].pass);
+        WriteString(cfg, key, servers[i].pass_stored);
         
         snprintf(key, sizeof(key), "server_%d_fetch_thumbs", i); 
         WriteInt(cfg, key, servers[i].fetch_thumbs);
@@ -253,9 +271,54 @@ void SaveServers() {
     CloseConfig(cfg);
 }
 
+char credentials_warning[MAX_STR_LEN] = {0};
+
+/* Descifra la contraseña guardada de un servidor. Devuelve 1 si estaba en
+   texto plano (hay que volver a guardar). */
+static int ApplyStoredPassword(OPDSServer *server) {
+    server->pass_locked = 0;
+    int result = SecretsDecrypt(server->pass_stored, server->pass, sizeof(server->pass));
+    if (result == SECRET_LOCKED) {
+        server->pass_locked = 1;
+        server->pass[0] = '\0';
+    } else if (result == SECRET_ERROR) {
+        LogDebug("Secrets: no se pudo descifrar una contraseña (¿otro lector o archivo dañado?).");
+        server->pass[0] = '\0';
+        server->pass_stored[0] = '\0';
+        size_t used = strlen(credentials_warning);
+        snprintf(credentials_warning + used, sizeof(credentials_warning) - used,
+                 "%s%s", used ? ", " : "", server->name);
+    }
+    return result == SECRET_PLAINTEXT && server->pass[0];
+}
+
+int AnyServerPasswordLocked(void) {
+    for (int i = 0; i < server_count; i++) if (servers[i].pass_locked) return 1;
+    return 0;
+}
+
+void UnlockLockedServerPasswords(void) {
+    for (int i = 0; i < server_count; i++) {
+        if (servers[i].pass_locked) ApplyStoredPassword(&servers[i]);
+    }
+}
+
+void ForgetLockedServerPasswords(void) {
+    for (int i = 0; i < server_count; i++) {
+        if (servers[i].pass_locked) {
+            servers[i].pass_locked = 0;
+            servers[i].pass[0] = '\0';
+            servers[i].pass_stored[0] = '\0';
+        }
+    }
+}
+
 void LoadServers() {
     // Ensure the app directory is available immediately on boot
     mkdir(APP_ROOT_DIR, 0777);
+    int needs_resave = 0;
+    credentials_warning[0] = '\0';
+    SecretsLoadParams("", 0, "");
 
     // --- NORMAL TEXT LOAD FROM NEW LOCATION ---
     // Explicitly check if the file exists on the filesystem first.
@@ -264,6 +327,10 @@ void LoadServers() {
         if (cfg) {
             server_count = ReadInt(cfg, "server_count", 0);
             if (server_count > MAX_SERVERS) server_count = MAX_SERVERS;
+            SecretsLoadParams(ReadString(cfg, "crypto_salt", ""),
+                              ReadInt(cfg, "crypto_pin", 0),
+                              ReadString(cfg, "crypto_check", ""));
+            if (!ReadString(cfg, "crypto_salt", "")[0]) needs_resave = 1;
 
             for (int i = 0; i < server_count; i++) {
                 char key[64];
@@ -278,7 +345,9 @@ void LoadServers() {
                 strncpy(servers[i].user, ReadString(cfg, key, ""), MAX_STR_LEN - 1);
                 
                 snprintf(key, sizeof(key), "server_%d_pass", i);
-                strncpy(servers[i].pass, ReadString(cfg, key, ""), MAX_STR_LEN - 1);
+                snprintf(servers[i].pass_stored, sizeof(servers[i].pass_stored), "%s",
+                         ReadString(cfg, key, ""));
+                if (ApplyStoredPassword(&servers[i])) needs_resave = 1;
                 
                 snprintf(key, sizeof(key), "server_%d_fetch_thumbs", i);
                 servers[i].fetch_thumbs = ReadInt(cfg, key, 1); 
@@ -291,6 +360,8 @@ void LoadServers() {
 
             CloseConfig(cfg);
         }
+        // Migrate plain-text passwords from older versions to encrypted storage
+        if (needs_resave) SaveServers();
         return; // Successfully loaded from new location
     }
 

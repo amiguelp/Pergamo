@@ -1,4 +1,5 @@
 #include "opds_app.h"
+#include "secrets.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -919,6 +920,144 @@ void PerformSearch(char *text) {
     LoadCatalog(final_url);
 }
 
+// --- PIN de las contraseñas -------------------------------------------------
+
+static void (*pin_then)(void) = NULL;
+static char pin_buffer[64];
+static char pin_new[64];
+
+static void WipePinBuffers(void) {
+    volatile char *p = pin_buffer;
+    for (size_t i = 0; i < sizeof(pin_buffer); i++) p[i] = 0;
+    p = pin_new;
+    for (size_t i = 0; i < sizeof(pin_new); i++) p[i] = 0;
+}
+
+static void ForgotPinDialog(int button) {
+    if (button == 1) {
+        ForgetLockedServerPasswords();
+        SecretsDisablePin();
+        SaveServers();
+        Message(ICON_INFORMATION, T("PIN desactivado"),
+                T("Se borraron las contraseñas protegidas. Vuelve a escribirlas en los datos de cada servidor."), 5000);
+    }
+    pin_then = NULL;
+    Repaint();
+}
+
+static void PinEnteredCallback(char *text) {
+    if (!text) {
+        WipePinBuffers();
+        Dialog(ICON_QUESTION, T("¿Has olvidado el PIN?"),
+               T("Sin el PIN no se pueden leer las contraseñas guardadas. Puedes borrarlas y desactivar el PIN; después tendrás que volver a escribirlas."),
+               T("Borrar contraseñas"), T("Cancelar"), ForgotPinDialog);
+        return;
+    }
+    ShowHourglass();
+    int ok = SecretsUnlock(text) == 0;
+    HideHourglass();
+    WipePinBuffers();
+    if (!ok) {
+        pin_then = NULL;
+        Message(ICON_ERROR, T("PIN incorrecto"), T("El PIN no es correcto."), 2500);
+        Repaint();
+        return;
+    }
+    UnlockLockedServerPasswords();
+    void (*then)(void) = pin_then;
+    pin_then = NULL;
+    if (then) then(); else Repaint();
+}
+
+/* Ejecuta "then" directamente o, si las contraseñas están protegidas por un
+   PIN que aún no se ha escrito, después de pedirlo. */
+static void RequirePin(void (*then)(void)) {
+    if (!SecretsPinEnabled() || SecretsPinUnlocked()) {
+        then();
+        return;
+    }
+    pin_then = then;
+    WipePinBuffers();
+    OpenKeyboard(T("PIN de Pergamo"), pin_buffer, sizeof(pin_buffer) - 1,
+                 KBD_PASSWORD, PinEnteredCallback);
+}
+
+static void PinConfirmCallback(char *text) {
+    if (text) {
+        if (strcmp(text, pin_new) != 0) {
+            Message(ICON_ERROR, T("PIN"), T("Los PIN no coinciden."), 2500);
+        } else {
+            ShowHourglass();
+            int ok = SecretsEnablePin(pin_new) == 0;
+            if (ok) SaveServers();
+            HideHourglass();
+            if (ok) {
+                Message(ICON_INFORMATION, T("PIN activado"),
+                        T("Las contraseñas están protegidas con tu PIN. Se pedirá al abrir un servidor con contraseña."), 4000);
+            } else {
+                Message(ICON_ERROR, T("PIN"), T("No se pudo activar el PIN."), 3000);
+            }
+        }
+    }
+    WipePinBuffers();
+    Repaint();
+}
+
+static void PinNewCallback(char *text) {
+    if (!text || !text[0]) { WipePinBuffers(); Repaint(); return; }
+    if (strlen(text) < 4) {
+        WipePinBuffers();
+        Message(ICON_ERROR, T("PIN"), T("El PIN debe tener al menos 4 caracteres."), 2500);
+        Repaint();
+        return;
+    }
+    snprintf(pin_new, sizeof(pin_new), "%s", text);
+    memset(pin_buffer, 0, sizeof(pin_buffer));
+    OpenKeyboard(T("Repite el PIN"), pin_buffer, sizeof(pin_buffer) - 1,
+                 KBD_PASSWORD, PinConfirmCallback);
+}
+
+static void DisablePinNow(void) {
+    ShowHourglass();
+    SecretsDisablePin();
+    SaveServers();
+    HideHourglass();
+    Message(ICON_INFORMATION, T("PIN desactivado"),
+            T("Las contraseñas siguen cifradas, pero ya no se pide el PIN."), 3000);
+    Repaint();
+}
+
+static void TogglePinProtection(void) {
+    if (SecretsPinEnabled()) {
+        RequirePin(DisablePinNow);
+    } else {
+        WipePinBuffers();
+        OpenKeyboard(T("Nuevo PIN (mínimo 4 caracteres)"), pin_buffer, sizeof(pin_buffer) - 1,
+                     KBD_PASSWORD, PinNewCallback);
+    }
+}
+
+static void OpenServerOptionsNow(void) {
+    current_state = STATE_SERVER_OPTIONS;
+    Repaint();
+}
+
+static void OpenNewServerFormNow(void) {
+    memset(&temp_server, 0, sizeof(OPDSServer));
+    temp_server.fetch_thumbs = 1;
+    temp_server.catalog_rows = 10;
+    editing_server_index = -1;
+    current_state = STATE_SERVER_FORM;
+    Repaint();
+}
+
+static void OpenEditServerFormNow(void) {
+    editing_server_index = current_server_index;
+    memcpy(&temp_server, &servers[current_server_index], sizeof(OPDSServer));
+    current_state = STATE_SERVER_FORM;
+    Repaint();
+}
+
 void DrawMainMenu() {
     SetPanelType(0); nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0;
     int margin = sys_width / 20, gap = sys_height / 60, hh = sys_height / 14, row_h = sys_height / 12;
@@ -946,6 +1085,16 @@ void DrawMainMenu() {
     DrawButton(margin * 2, y + row_h + gap, sys_width - (margin * 4), row_h,
                T("Salir de la aplicación"), 2);
 
+    if (credentials_warning[0]) {
+        char warning[MAX_STR_LEN + 128];
+        snprintf(warning, sizeof(warning),
+                 T("No se pudo leer la contraseña guardada de: %s. Vuelve a escribirla."),
+                 credentials_warning);
+        SetTextFont(24, 0xCC0000);
+        DrawTextRect(margin, sys_height - 110, sys_width - margin * 2, 60, warning,
+                     ALIGN_CENTER | DOTS);
+    }
+
     SetTextFont(24, 0x555555); 
     DrawTextRect(0, sys_height - 40, sys_width, 30, "v" PERGAMO_VERSION, ALIGN_CENTER);
 }
@@ -969,18 +1118,16 @@ void HandleMainMenuTouch(int x, int y) {
             FlashArea(margin * 2, list_y, sys_width - (margin * 4), row_h);
             current_server_index = i; 
             strncpy(current_host, servers[i].url, MAX_STR_LEN - 1);
-            current_state = STATE_SERVER_OPTIONS; Repaint(); return; 
+            if (servers[i].pass_locked) RequirePin(OpenServerOptionsNow);
+            else OpenServerOptionsNow();
+            return; 
         } 
         list_y += row_h;
     }
     int add_y = list_y + gap;
     if (y >= add_y && y <= add_y + row_h) {
         FlashArea(margin * 2, add_y, sys_width - (margin * 4), row_h);
-        memset(&temp_server, 0, sizeof(OPDSServer)); 
-        temp_server.fetch_thumbs = 1; 
-        temp_server.catalog_rows = 10;
-        editing_server_index = -1;
-        current_state = STATE_SERVER_FORM; Repaint(); return; 
+        RequirePin(OpenNewServerFormNow); return; 
     } 
     int action_y = add_y + row_h + gap;
     if (x >= margin * 2 && x <= sys_width - margin * 2 &&
@@ -995,6 +1142,7 @@ void HandleMainMenuTouch(int x, int y) {
 
 enum {
     SETTINGS_LANGUAGE,
+    SETTINGS_PIN,
     SETTINGS_DEBUG_LOG,
     SETTINGS_CLEAR_CACHE,
     SETTINGS_ABOUT,
@@ -1031,6 +1179,10 @@ void DrawSettings() {
             case SETTINGS_LANGUAGE:
                 snprintf(text, sizeof(text), T("Idioma: %s"),
                          LanguageSettingName(app_language_setting));
+                break;
+            case SETTINGS_PIN:
+                snprintf(text, sizeof(text), T("PIN para las contraseñas: %s"),
+                         SecretsPinEnabled() ? T("activado") : T("desactivado"));
                 break;
             case SETTINGS_DEBUG_LOG:
                 snprintf(text, sizeof(text), T("Registro de depuración: %s"),
@@ -1090,6 +1242,9 @@ void HandleSettingsTouch(int x, int y) {
             Repaint();
             break;
         }
+        case SETTINGS_PIN:
+            TogglePinProtection();
+            break;
         case SETTINGS_DEBUG_LOG: {
             int ok;
             if (DebugLogEnabled()) {
@@ -1258,16 +1413,12 @@ void HandleServerOptionsTouch(int x, int y) {
             LoadCatalog(account_url);
             return;
         }
-        editing_server_index = current_server_index; memcpy(&temp_server, &servers[current_server_index], sizeof(OPDSServer));
-        current_state = STATE_SERVER_FORM; Repaint(); return;
+        RequirePin(OpenEditServerFormNow); return;
     }
     if (is_ebiblio && y >= top_y + (row_h + gap) * 2 &&
         y <= top_y + (row_h + gap) * 2 + row_h) {
         FlashArea(bx, top_y + (row_h + gap) * 2, bw, row_h);
-        editing_server_index = current_server_index;
-        memcpy(&temp_server, &servers[current_server_index], sizeof(OPDSServer));
-        current_state = STATE_SERVER_FORM;
-        Repaint();
+        RequirePin(OpenEditServerFormNow);
         return;
     }
     if (y >= mid_y && y <= mid_y + row_h) {
@@ -1349,8 +1500,10 @@ void HandleServerFormTouch(int x, int y) {
         } else {
             FlashArea(sys_width / 2 + 20, ly, (sys_width / 2) - 40, row_h);
             if (strlen(temp_server.name) > 0) {
+                temp_server.pass_locked = 0;
                 if (editing_server_index >= 0) servers[editing_server_index] = temp_server;
                 else if (server_count < MAX_SERVERS) servers[server_count++] = temp_server;
+                credentials_warning[0] = '\0';
                 SaveServers();
             }
         }
