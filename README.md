@@ -1,5 +1,9 @@
 # Pergamo
 
+> Pergamo is built from **OPDS Client**, an OPDS catalog client for PocketBook
+> e-readers, and extends it with eBiblio Madrid support, a settings screen,
+> Spanish/English translations, encrypted credentials and automatic updates.
+
 An OPDS catalog client built in C for PocketBook e-readers. This application allows users to connect to OPDS servers (such as COPS, Calibre-Web, and Project Gutenberg), browse catalogs, search for titles, and download books directly to the device.
 
 ## Features
@@ -66,6 +70,30 @@ retrieve and open the EPUB.
 4. OPTIONAL:  If you want to have a couple of starting servers already configured you can copy the `opds_client.cfg` file into the `applications\Pergamo\` folder. If you haven't run the application yet the `Pergamo` folder won't exist. You will have to create it manually or run the app once and come back and copy this file.
 5. Disconnect the device. The app will be available in your PocketBook's "Applications" menu.
 
+## Automatic updates
+
+Once Pergamo 1.2 or later is installed, you no longer need to copy the `.app`
+file by hand. When the app opens (at most once a day, and only if Wi-Fi is
+already connected) it checks `version.txt` in this repository's `main` branch.
+If a newer version is published it asks before installing it. You can also
+check at any time from **Configuración → Buscar actualizaciones**, and turn the
+automatic check off with **Buscar al abrir**.
+
+The update downloads `Pergamo.app` over HTTPS from GitHub, verifies it against
+the BLAKE2b-256 checksum in `Pergamo.app.b2` and checks that it is an ARM
+executable before replacing the installed app. The previous version is kept as
+`Pergamo.app.old` until the new one starts successfully. If anything fails,
+the installed app is left untouched.
+
+### Publishing a new version
+
+1. Bump `PERGAMO_VERSION` in `opds_app.h`.
+2. Build the app (`make`).
+3. Run `make release` (or `python3 tools/make_release_files.py`) to write
+   `version.txt` and `Pergamo.app.b2`.
+4. Commit `Pergamo.app`, `version.txt` and `Pergamo.app.b2` together and push
+   them to `main`. Readers pick up the update on their next check.
+
 ---
 
 ## PocketBook Launcher Icon
@@ -96,7 +124,7 @@ the original artwork, kept for reference.
 ## Uninstalling
 
 Choose **Desinstalar** from the main menu and confirm. The app removes its
-launcher entry, `Pergamo.app`, its saved server configuration and log, its
+launcher entry, `Pergamo.app`, its saved server configuration, settings and log, its
 numeric `cache_*.jpg` thumbnails, and its two launcher icon files. If the
 launcher configuration cannot be safely updated, no files are removed.
 

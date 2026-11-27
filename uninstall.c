@@ -82,7 +82,12 @@ int UninstallPergamo(void) {
         ICON_TEMP_FILE,
         FOCUSED_ICON_TEMP_FILE,
         VIEW_TEMP_FILE,
-        VIEW_BACKUP_TEMP_FILE
+        VIEW_BACKUP_TEMP_FILE,
+        APP_ROOT_DIR "pergamo_settings.cfg",
+        APP_ROOT_DIR "pergamo_settings.cfg.tmp",
+        APP_ROOT_DIR "LOGTRIGGER.TXT",
+        OPDS_APP_BINARY_PATH ".new",
+        OPDS_APP_BINARY_PATH ".old"
     };
     for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
         if (RemoveOwnedFile(files[i]) != 0) cleanup_failed = 1;
