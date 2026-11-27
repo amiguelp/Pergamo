@@ -196,8 +196,9 @@ void SetTextFont(int size, int color) {
 
 /* --- Geometría de la vista de catálogo (compartida entre dibujo y toques) ---
    Abajo, de arriba a abajo: texto de página, barra de navegación
-   (Atrás | Buscar | Inicio | Salir) y fila de paginación. */
-#define BROWSE_NAV_BUTTONS 4
+   (Atrás | Buscar | Inicio) y fila de paginación. Para salir de la app se
+   usa el botón de la pantalla principal. */
+#define BROWSE_NAV_BUTTONS 3
 
 static int BrowseFooterY(void) { return sys_height - sys_height / 13 - 10; }
 static int BrowseNavH(void) { return sys_height / 13; }
@@ -1544,12 +1545,12 @@ void DrawBrowsingView() {
 
     /* Barra de navegación abajo, con botones grandes. */
     {
-        static const char *labels[BROWSE_NAV_BUTTONS] = { "ATRÁS", "BUSCAR", "INICIO", "SALIR" };
+        static const char *labels[BROWSE_NAV_BUTTONS] = { "ATRÁS", "BUSCAR", "INICIO" };
         int nav_y = BrowseNavY(), nav_h = BrowseNavH();
         for (int i = 0; i < BROWSE_NAV_BUTTONS; i++) {
             int bx, bw;
             BrowseNavButtonRect(i, &bx, &bw);
-            DrawButton(bx, nav_y, bw, nav_h, T(labels[i]), i == BROWSE_NAV_BUTTONS - 1 ? 2 : 0);
+            DrawButton(bx, nav_y, bw, nav_h, T(labels[i]), 0);
         }
     }
 
@@ -1742,10 +1743,6 @@ void HandleBrowsingTouch(int x, int y) {
                 case 2: /* Inicio */
                     nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0; current_page = 0;
                     LoadCatalog(servers[current_server_index].url);
-                    break;
-                case 3: /* Salir */
-                    Message(ICON_INFORMATION, T("Saliendo"), T("Limpiando..."), 0); Repaint();
-                    ManageImageCache(); TriggerLibraryRefresh(); CloseApp();
                     break;
             }
             return;

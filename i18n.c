@@ -356,8 +356,6 @@ static const Translation translations[] = {
      "HOME"},
     {"ATRÁS",
      "BACK"},
-    {"SALIR",
-     "EXIT"},
     {"SIGUIENTE >>",
      "NEXT >>"},
     {"MÁS >>",
