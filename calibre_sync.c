@@ -18,6 +18,7 @@
  */
 #include "calibre_sync.h"
 #include "opds_app.h"
+#include "pblibrary.h"
 
 #include <curl/curl.h>
 #include <ctype.h>
@@ -29,9 +30,6 @@
 
 extern void LogDebug(const char *msg);
 
-#ifndef PB_LIBRARY_DB
-#define PB_LIBRARY_DB "/mnt/ext1/system/explorer-3/explorer-3.db"
-#endif
 #ifndef CALIBRE_LINKS_FILE
 #define CALIBRE_LINKS_FILE APP_ROOT_DIR "calibre_links.cfg"
 #endif
@@ -70,49 +68,12 @@ static void BufferFree(Buffer *b) {
     b->size = 0;
 }
 
-/* Minúsculas, sin tildes (Latin-1 y algunas más) y solo letras/números
-   separados por un espacio. Sirve para comparar títulos y autores. */
-static void Normalize(const char *in, char *out, size_t out_size) {
-    size_t o = 0;
-    int space = 1;
-    const unsigned char *p = (const unsigned char *)in;
-    while (p && *p && o + 2 < out_size) {
-        unsigned char c = *p;
-        char mapped = 0;
-        if (c < 0x80) {
-            mapped = isalnum(c) ? (char)tolower(c) : ' ';
-            p++;
-        } else if (c == 0xC3 && p[1]) {
-            static const char latin1[] =
-                /* 0x80-0xBF de U+00C0..U+00FF */
-                "aaaaaaaceeeeiiii" "dnooooo ouuuuyts"
-                "aaaaaaaceeeeiiii" "dnooooo ouuuuyty";
-            unsigned char d = p[1];
-            mapped = (d >= 0x80 && d <= 0xBF) ? latin1[d - 0x80] : ' ';
-            p += 2;
-        } else {
-            /* otros caracteres multibyte: se tratan como separador */
-            p++;
-            while ((*p & 0xC0) == 0x80) p++;
-            mapped = ' ';
-        }
-        if (mapped == ' ') {
-            if (!space) { out[o++] = ' '; space = 1; }
-        } else {
-            out[o++] = mapped;
-            space = 0;
-        }
-    }
-    while (o > 0 && out[o - 1] == ' ') o--;
-    out[o] = '\0';
-}
-
 /* Algún apellido/nombre (3+ letras) del autor del lector aparece en el de
    Calibre-Web. */
 static int AuthorsMatch(const char *pb_author, const char *cw_authors) {
     char a[512], b[1024];
-    Normalize(pb_author, a, sizeof(a));
-    Normalize(cw_authors, b, sizeof(b));
+    PbNormalize(pb_author, a, sizeof(a));
+    PbNormalize(cw_authors, b, sizeof(b));
     if (!a[0] || !b[0]) return !a[0];   /* sin autor en el lector: solo título */
     char padded[1100];
     snprintf(padded, sizeof(padded), " %s ", b);
@@ -256,45 +217,6 @@ static void SaveSyncState(const char *server_url, long long pb_id, const char *s
 /* Biblioteca del PocketBook (SQLite cargado en tiempo de ejecución)        */
 /* ------------------------------------------------------------------------ */
 
-typedef struct sqlite3 sqlite3;
-typedef struct sqlite3_stmt sqlite3_stmt;
-#define SQ_OPEN_READONLY 0x00000001
-#define SQ_ROW 100
-
-static struct {
-    void *handle;
-    int (*open_v2)(const char *, sqlite3 **, int, const char *);
-    int (*prepare_v2)(sqlite3 *, const char *, int, sqlite3_stmt **, const char **);
-    int (*step)(sqlite3_stmt *);
-    const unsigned char *(*column_text)(sqlite3_stmt *, int);
-    long long (*column_int64)(sqlite3_stmt *, int);
-    int (*finalize)(sqlite3_stmt *);
-    int (*close)(sqlite3 *);
-    int (*busy_timeout)(sqlite3 *, int);
-} sq;
-
-static int LoadSqlite(void) {
-    if (sq.handle) return 0;
-    const char *names[] = {"libsqlite3.so.0", "libsqlite3.so"};
-    for (size_t i = 0; i < 2 && !sq.handle; i++) sq.handle = dlopen(names[i], RTLD_NOW);
-    if (!sq.handle) return -1;
-    *(void **)&sq.open_v2 = dlsym(sq.handle, "sqlite3_open_v2");
-    *(void **)&sq.prepare_v2 = dlsym(sq.handle, "sqlite3_prepare_v2");
-    *(void **)&sq.step = dlsym(sq.handle, "sqlite3_step");
-    *(void **)&sq.column_text = dlsym(sq.handle, "sqlite3_column_text");
-    *(void **)&sq.column_int64 = dlsym(sq.handle, "sqlite3_column_int64");
-    *(void **)&sq.finalize = dlsym(sq.handle, "sqlite3_finalize");
-    *(void **)&sq.close = dlsym(sq.handle, "sqlite3_close");
-    *(void **)&sq.busy_timeout = dlsym(sq.handle, "sqlite3_busy_timeout");
-    if (!sq.open_v2 || !sq.prepare_v2 || !sq.step || !sq.column_text || !sq.column_int64 ||
-        !sq.finalize || !sq.close) {
-        dlclose(sq.handle);
-        memset(&sq, 0, sizeof(sq));
-        return -1;
-    }
-    return 0;
-}
-
 typedef struct {
     long long id;
     char title[256];
@@ -303,56 +225,50 @@ typedef struct {
     int path_count;
 } FinishedBook;
 
-static const char *ColumnText(sqlite3_stmt *st, int i) {
-    const unsigned char *t = sq.column_text(st, i);
-    return t ? (const char *)t : "";
-}
-
 static int ReadFinishedBooks(FinishedBook **books, int *count, char *error, size_t error_size) {
     *books = NULL;
     *count = 0;
-    if (LoadSqlite() != 0) {
+    const PbSqlite *sq = PbSqliteLoad();
+    if (!sq) {
         snprintf(error, error_size, "%s", T("No se pudo leer la biblioteca del PocketBook (falta SQLite)."));
         return -1;
     }
-    sqlite3 *db = NULL;
-    if (sq.open_v2(PB_LIBRARY_DB, &db, SQ_OPEN_READONLY, NULL) != 0 || !db) {
-        if (db) sq.close(db);
+    sqlite3 *db = PbLibraryOpen();
+    if (!db) {
         snprintf(error, error_size, "%s", T("No se pudo abrir la biblioteca del PocketBook."));
         return -1;
     }
-    if (sq.busy_timeout) sq.busy_timeout(db, 3000);
     const char *query =
         "SELECT b.id, IFNULL(b.title,''), IFNULL(b.author,''), IFNULL(fo.name,''), IFNULL(f.filename,'') "
         "FROM books_settings s JOIN books_impl b ON b.id = s.bookid "
         "LEFT JOIN files f ON f.book_id = b.id LEFT JOIN folders fo ON fo.id = f.folder_id "
         "WHERE s.completed = 1 ORDER BY b.id";
     sqlite3_stmt *st = NULL;
-    if (sq.prepare_v2(db, query, -1, &st, NULL) != 0 || !st) {
-        sq.close(db);
+    if (sq->prepare_v2(db, query, -1, &st, NULL) != 0 || !st) {
+        PbLibraryClose(db);
         snprintf(error, error_size, "%s", T("La biblioteca del PocketBook tiene un formato desconocido."));
         return -1;
     }
     FinishedBook *list = calloc(MAX_FINISHED, sizeof(FinishedBook));
     if (!list) {
-        sq.finalize(st);
-        sq.close(db);
+        sq->finalize(st);
+        PbLibraryClose(db);
         snprintf(error, error_size, "%s", T("No hay memoria suficiente."));
         return -1;
     }
     int n = 0;
-    while (sq.step(st) == SQ_ROW) {
-        long long id = sq.column_int64(st, 0);
+    while (sq->step(st) == PB_SQLITE_ROW) {
+        long long id = sq->column_int64(st, 0);
         FinishedBook *b = (n > 0 && list[n - 1].id == id) ? &list[n - 1] : NULL;
         if (!b) {
             if (n >= MAX_FINISHED) break;
             b = &list[n++];
             b->id = id;
-            snprintf(b->title, sizeof(b->title), "%s", ColumnText(st, 1));
-            snprintf(b->author, sizeof(b->author), "%s", ColumnText(st, 2));
+            snprintf(b->title, sizeof(b->title), "%s", PbColumnText(st, 1));
+            snprintf(b->author, sizeof(b->author), "%s", PbColumnText(st, 2));
         }
-        const char *folder = ColumnText(st, 3);
-        const char *file = ColumnText(st, 4);
+        const char *folder = PbColumnText(st, 3);
+        const char *file = PbColumnText(st, 4);
         if (file[0] && b->path_count < MAX_PATHS) {
             if (file[0] == '/' || !folder[0])
                 snprintf(b->paths[b->path_count++], sizeof(b->paths[0]), "%s", file);
@@ -360,8 +276,8 @@ static int ReadFinishedBooks(FinishedBook **books, int *count, char *error, size
                 snprintf(b->paths[b->path_count++], sizeof(b->paths[0]), "%s/%s", folder, file);
         }
     }
-    sq.finalize(st);
-    sq.close(db);
+    sq->finalize(st);
+    PbLibraryClose(db);
     *books = list;
     *count = n;
     return 0;
@@ -597,7 +513,7 @@ static long FindBook(Session *s, const FinishedBook *book) {
         return 0;
     }
     char want[512];
-    Normalize(book->title, want, sizeof(want));
+    PbNormalize(book->title, want, sizeof(want));
     long found = 0;
     int ambiguous = 0;
     for (char *entry = strstr(feed.data, "<entry"); entry; entry = strstr(entry + 6, "<entry")) {
@@ -617,7 +533,7 @@ static long FindBook(Session *s, const FinishedBook *book) {
             if (ExtractBetween(h, end, "href=\"", "\"", href, sizeof(href))) id = BookIdFromURL(href);
         }
         char got[512];
-        Normalize(title, got, sizeof(got));
+        PbNormalize(title, got, sizeof(got));
         if (id > 0 && strcmp(got, want) == 0 && AuthorsMatch(book->author, authors)) {
             if (found == 0) found = id;
             else if (found != id) ambiguous = 1;

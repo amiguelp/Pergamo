@@ -92,6 +92,28 @@ already connected, up to 15 books each time); turn this off with
   manual button also retries books that could not be identified before.
 * SQLite is loaded at runtime, so the app still starts on firmwares without it.
 
+## Reading statistics
+
+**Estadísticas de lectura** (main screen) reads the PocketBook library database
+(read-only) and shows books finished, pages read, the average and the longest
+book, totals per year and for the last 12 months, and what you are reading now.
+Duplicate copies of a book (download + PocketBook Cloud) are merged, and a book
+left on its last page counts as finished.
+
+The reader's own page numbers depend on the font size, so **Actualizar páginas**
+looks up "real" pages once per book and stores them in `pages_cache.cfg`:
+
+1. **Exact:** the print-edition page markers some EPUBs include (EPUB 3
+   `page-list` / EPUB 2 `pageList`), or the fixed pages of a PDF/DjVu.
+2. **Estimated:** the EPUB's text length divided by 1,800 characters per page.
+3. **Open Library:** for books without a file (e.g. returned eBiblio loans), the
+   print edition's page count, by ISBN or exact title and author. Books not
+   found are retried after 30 days.
+
+Books without real pages use the reader's pages (except "100", which is a
+percentage). The screen shows where the numbers come from. EPUBs are read with a
+small built-in ZIP reader; zlib and SQLite are loaded at runtime.
+
 ## Automatic updates
 
 Once Pergamo 1.2 or later is installed, you no longer need to copy the `.app`

@@ -212,6 +212,7 @@ void Repaint() {
         case STATE_BOOK_DETAILS:   DrawBookDetails(); break;
         case STATE_UNINSTALL_CONFIRM: DrawUninstallConfirmation(); break;
         case STATE_SETTINGS:       DrawSettings(); break;
+        case STATE_STATS:          DrawStats(); break;
     }
     FullUpdate();
 }
@@ -516,6 +517,7 @@ static int main_handler(int event, int a, int b) {
                 case STATE_BOOK_DETAILS:   HandleBookDetailsTouch(a, b); break;
                 case STATE_UNINSTALL_CONFIRM: HandleUninstallConfirmationTouch(a, b); break;
                 case STATE_SETTINGS:       HandleSettingsTouch(a, b); break;
+                case STATE_STATS:          HandleStatsTouch(a, b); break;
             }
             break;
 

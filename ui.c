@@ -3,6 +3,7 @@
 #include "settings_store.h"
 #include "updater.h"
 #include "calibre_sync.h"
+#include "readstats.h"
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
@@ -77,6 +78,7 @@ void FetchThumbnailsForPage();
 void ManageImageCache(); 
 void JIT_DecodePageThumbnails(); 
 static int KnownListTotal(void);
+static void OpenStatsNow(void);
 static void CountCurrentList(void);
 static int EbiblioActionCount(const OPDSEntry *entry);
 static int EbiblioHasBorrowAction(const OPDSEntry *entry);
@@ -1310,8 +1312,10 @@ void DrawMainMenu() {
     y += gap; 
     DrawButton(margin * 2, y, sys_width - (margin * 4), row_h, T("+ Agregar servidor"), 0);
     DrawButton(margin * 2, y + row_h + gap, sys_width - (margin * 4), row_h,
-               T("Configuración"), 0);
+               T("Estadísticas de lectura"), 0);
     DrawButton(margin * 2, y + (row_h + gap) * 2, sys_width - (margin * 4), row_h,
+               T("Configuración"), 0);
+    DrawButton(margin * 2, y + (row_h + gap) * 3, sys_width - (margin * 4), row_h,
                T("Salir de la aplicación"), 2);
 
     if (credentials_warning[0]) {
@@ -1347,7 +1351,14 @@ void HandleMainMenuTouch(int x, int y) {
         FlashArea(margin * 2, add_y, sys_width - (margin * 4), row_h);
         RequirePin(OpenNewServerFormNow); return; 
     } 
-    int settings_y = add_y + row_h + gap;
+    int stats_y = add_y + row_h + gap;
+    if (x >= margin * 2 && x <= sys_width - margin * 2 &&
+        y >= stats_y && y <= stats_y + row_h) {
+        FlashArea(margin * 2, stats_y, sys_width - margin * 4, row_h);
+        OpenStatsNow();
+        return;
+    }
+    int settings_y = stats_y + row_h + gap;
     if (x >= margin * 2 && x <= sys_width - margin * 2 &&
         y >= settings_y && y <= settings_y + row_h) {
         FlashArea(margin * 2, settings_y, sys_width - margin * 4, row_h);
@@ -1361,6 +1372,172 @@ void HandleMainMenuTouch(int x, int y) {
         FlashArea(margin * 2, action_y, sys_width - margin * 4, row_h);
         Message(ICON_INFORMATION, T("Saliendo"), T("Limpiando..."), 0); Repaint();
         ManageImageCache(); TriggerLibraryRefresh(); CloseApp();
+    }
+}
+
+// --- Estadísticas de lectura ----------------------------------------------------
+
+static ReadingStats reading_stats;
+static int reading_stats_ok = 0;
+static char reading_stats_error[MAX_STR_LEN];
+
+/* Número con separador de miles (punto en español, coma en inglés). */
+static void FormatNumber(long value, char *out, size_t out_size) {
+    char digits[32];
+    snprintf(digits, sizeof(digits), "%ld", value < 0 ? -value : value);
+    char sep = CurrentLanguage() == LANG_ES ? '.' : ',';
+    size_t len = strlen(digits), o = 0;
+    if (value < 0 && o + 1 < out_size) out[o++] = '-';
+    for (size_t i = 0; i < len && o + 2 < out_size; i++) {
+        out[o++] = digits[i];
+        size_t left = len - i - 1;
+        if (left > 0 && left % 3 == 0) out[o++] = sep;
+    }
+    out[o] = '\0';
+}
+
+static void LoadReadingStats(void) {
+    reading_stats_error[0] = '\0';
+    ShowHourglass();
+    reading_stats_ok = StatsCompute(&reading_stats, reading_stats_error, sizeof(reading_stats_error)) == 0;
+    HideHourglass();
+}
+
+static void OpenStatsNow(void) {
+    LoadReadingStats();
+    current_state = STATE_STATS;
+    Repaint();
+}
+
+static void StatsButtons(int *update_y, int *back_y, int *row_h, int *margin) {
+    *margin = sys_width / 20;
+    *row_h = sys_height / 13;
+    int gap = sys_height / 60;
+    *back_y = sys_height - *row_h - gap * 2;
+    *update_y = *back_y - *row_h - gap;
+}
+
+void DrawStats() {
+    SetPanelType(0);
+    int margin, row_h, update_y, back_y;
+    StatsButtons(&update_y, &back_y, &row_h, &margin);
+    int gap = sys_height / 60, hh = sys_height / 14;
+    SetTextFont(48, 0x000000);
+    DrawTextRect(0, gap, sys_width, 60, T("Estadísticas de lectura"), ALIGN_CENTER);
+    DrawLine(margin, hh, sys_width - margin, hh, 0x000000);
+
+    static char text[4096];
+    size_t u = 0;
+#define ADD(...) do { if (u < sizeof(text)) u += snprintf(text + u, sizeof(text) - u, __VA_ARGS__); } while (0)
+    if (!reading_stats_ok) {
+        ADD("%s", reading_stats_error[0] ? reading_stats_error : T("No se pudo completar la operación."));
+    } else {
+        const ReadingStats *s = &reading_stats;
+        char n1[32], n2[32], n3[32];
+        FormatNumber(s->pages_total, n1, sizeof(n1));
+        FormatNumber(s->pages_finished, n2, sizeof(n2));
+        FormatNumber(s->pages_ongoing, n3, sizeof(n3));
+        ADD(T("Libros terminados: %d\n"), s->books_finished);
+        ADD(T("Páginas leídas: %s (%s en terminados + %s en los que estás leyendo)\n"), n1, n2, n3);
+        if (s->avg_pages > 0) ADD(T("Media por libro terminado: %d páginas\n"), s->avg_pages);
+        if (s->longest_pages > 0) ADD(T("El más largo: %s (%d páginas)\n"), s->longest_title, s->longest_pages);
+        if (s->year_count > 0) {
+            ADD("\n%s\n", T("Por año:"));
+            for (int y = 0; y < s->year_count; y++) {
+                FormatNumber(s->years[y].pages, n1, sizeof(n1));
+                ADD(T("   %d: %d libros, %s páginas\n"), s->years[y].year, s->years[y].books, n1);
+            }
+        }
+        int any_month = 0;
+        for (int m = 0; m < 12; m++) if (s->months[m].books) any_month = 1;
+        if (any_month) {
+            ADD("\n%s\n", T("Últimos 12 meses:"));
+            for (int m = 0; m < 12; m++) {
+                if (!s->months[m].books) continue;
+                FormatNumber(s->months[m].pages, n1, sizeof(n1));
+                ADD(T("   %02d/%d: %d libros, %s páginas\n"), s->months[m].month, s->months[m].year,
+                    s->months[m].books, n1);
+            }
+        }
+        if (s->ongoing_count > 0) {
+            ADD("\n%s\n", T("Leyendo ahora:"));
+            for (int i = 0; i < s->ongoing_count; i++)
+                ADD("   %s (%d%%)\n", s->ongoing[i].title, s->ongoing[i].percent);
+        }
+    }
+#undef ADD
+    int body_y = hh + gap * 2;
+    int note_h = 110;
+    SetTextFont(26, 0x000000);
+    DrawTextRect(margin, body_y, sys_width - margin * 2, update_y - body_y - note_h - gap,
+                 text, ALIGN_LEFT | DOTS);
+
+    if (reading_stats_ok) {
+        const ReadingStats *s = &reading_stats;
+        char note[600];
+        snprintf(note, sizeof(note),
+                 T("Páginas reales: %d exactas, %d estimadas por el texto, %d de Open Library. Con páginas del lector: %d. Sin dato: %d."),
+                 s->source_exact, s->source_estimated, s->source_online, s->source_reader, s->source_none);
+        if (s->pending_real_pages > 0) {
+            size_t n = strlen(note);
+            snprintf(note + n, sizeof(note) - n, T(" Pendientes de buscar: %d (pulsa \"Actualizar páginas\")."),
+                     s->pending_real_pages);
+        }
+        SetTextFont(22, 0x555555);
+        DrawTextRect(margin, update_y - note_h - gap / 2, sys_width - margin * 2, note_h, note, ALIGN_LEFT);
+    }
+    DrawButton(margin * 2, update_y, sys_width - margin * 4, row_h, T("Actualizar páginas"),
+               reading_stats_ok && reading_stats.pending_real_pages > 0 ? 0 : BUTTON_DISABLED);
+    DrawButton(margin * 2, back_y, sys_width - margin * 4, row_h, T("Volver"), 1);
+}
+
+static void StatsUpdateProgress(int done, int total, const char *title) {
+    (void)title;
+    char text[128];
+    snprintf(text, sizeof(text), T("Libro %d de %d"), done < total ? done + 1 : total, total);
+    UpdateProgressbar(text, total > 0 ? done * 100 / total : 100);
+}
+
+static void CloseStatsSummary(int button) {
+    (void)button;
+    Repaint();
+}
+
+static void UpdateRealPagesNow(void) {
+    /* Los EPUB se leen sin red; Open Library la necesita para los demás. */
+    if (!(QueryNetwork() & NET_CONNECTED)) NetConnect(NULL);
+    StatsUpdateReport report;
+    char error[MAX_STR_LEN] = {0};
+    OpenProgressbar(ICON_INFORMATION, T("Actualizar páginas"), T("Buscando las páginas reales..."), 0, NULL);
+    int result = StatsUpdatePages(StatsUpdateProgress, &report, error, sizeof(error));
+    CloseProgressbar();
+    LoadReadingStats();
+    if (result != 0) {
+        Message(ICON_ERROR, T("Actualizar páginas"), error[0] ? error : T("No se pudo completar la operación."), 5000);
+        Repaint();
+        return;
+    }
+    static char text[600];
+    snprintf(text, sizeof(text),
+             T("Libros revisados: %d\nPáginas exactas: %d\nEstimadas por el texto: %d\nDe Open Library: %d\nNo encontradas: %d\nSin conexión (se reintentará): %d"),
+             report.processed, report.exact, report.estimated, report.online, report.not_found, report.skipped);
+    Dialog(ICON_INFORMATION, T("Actualizar páginas"), text, "OK", NULL, CloseStatsSummary);
+}
+
+void HandleStatsTouch(int x, int y) {
+    int margin, row_h, update_y, back_y;
+    StatsButtons(&update_y, &back_y, &row_h, &margin);
+    if (x < margin * 2 || x > sys_width - margin * 2) return;
+    if (y >= back_y && y <= back_y + row_h) {
+        FlashArea(margin * 2, back_y, sys_width - margin * 4, row_h);
+        current_state = STATE_MAIN_MENU;
+        Repaint();
+        return;
+    }
+    if (y >= update_y && y <= update_y + row_h) {
+        if (!reading_stats_ok || reading_stats.pending_real_pages == 0) return;
+        FlashArea(margin * 2, update_y, sys_width - margin * 4, row_h);
+        UpdateRealPagesNow();
     }
 }
 
