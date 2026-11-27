@@ -1,15 +1,19 @@
 /*
  * Almacenamiento cifrado de las contraseñas de los servidores.
  *
- * Las contraseñas se guardan en opds_client.cfg cifradas con AES-256-GCM.
- * La clave se deriva con PBKDF2-HMAC-SHA256 de:
- *   - datos propios de este lector (número de serie y modelo), y
- *   - opcionalmente, un PIN que el usuario escribe al abrir un servidor.
+ * No depende de ninguna librería del lector: usa Monocypher (monocypher.c,
+ * incluido en el repositorio). Una versión anterior usaba el libcrypto del
+ * sistema y la app no arrancaba en firmwares sin libcrypto.so.1.0.0.
+ *
+ *   - Cifrado: XChaCha20-Poly1305 (crypto_aead_lock), nonce aleatorio de 24 B.
+ *   - Clave del dispositivo: BLAKE2b(sal, "Pergamo-v2|serie|modelo").
+ *   - Clave con PIN: Argon2id(PIN, sal, clave del dispositivo como secreto),
+ *     4 MiB y 3 pasadas, para encarecer probar PIN uno a uno.
  *
  * Formatos guardados:
- *   enc1:<base64(iv|tag|texto cifrado)>  -> clave del dispositivo
- *   enc2:<base64(iv|tag|texto cifrado)>  -> clave del dispositivo + PIN
- *   (cualquier otro valor)               -> texto plano antiguo; se migra
+ *   pd1:<base64(nonce|mac|texto cifrado)>  -> clave del dispositivo
+ *   pp1:<base64(nonce|mac|texto cifrado)>  -> clave con PIN
+ *   (cualquier otro valor)                 -> texto plano antiguo; se migra
  *
  * Limitación conocida: sin PIN, quien tenga el propio lector puede obtener
  * su número de serie y descifrar las contraseñas. El cifrado del dispositivo
@@ -17,12 +21,14 @@
  * frente a quien tenga el lector.
  */
 #include "secrets.h"
+#include "monocypher.h"
 
-#include <openssl/evp.h>
-#include <openssl/rand.h>
-#include <openssl/crypto.h>
+#include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifndef SECRETS_NO_INKVIEW
 #include <inkview.h>
@@ -32,40 +38,89 @@ extern void LogDebug(const char *msg);
 
 #define SALT_LEN 16
 #define KEY_LEN 32
-#define IV_LEN 12
-#define TAG_LEN 16
-#define DEVICE_ITERATIONS 10000
-#define PIN_ITERATIONS 100000
+#define NONCE_LEN 24
+#define MAC_LEN 16
+#define MAX_PLAIN 1024
+#define ARGON2_BLOCKS 4096   /* 4 MiB */
+#define ARGON2_PASSES 3
 #define CHECK_PLAINTEXT "pergamo-pin-ok"
+#define PREFIX_DEVICE "pd1:"
+#define PREFIX_PIN "pp1:"
+#define PREFIX_LEN 4
 
-static unsigned char salt[SALT_LEN];
+static uint8_t salt[SALT_LEN];
 static int salt_ready = 0;
 static int pin_enabled = 0;
-static char pin_check[256] = {0};      /* enc2 de CHECK_PLAINTEXT */
+static char pin_check[256] = {0};
 
-static unsigned char device_key[KEY_LEN];
+static uint8_t device_key[KEY_LEN];
 static int device_key_ready = 0;
-static unsigned char pin_key[KEY_LEN];
+static uint8_t pin_key[KEY_LEN];
 static int pin_key_ready = 0;
 
-/* --- base64 ------------------------------------------------------------- */
+/* --- utilidades ---------------------------------------------------------- */
 
-static int B64Encode(const unsigned char *in, int len, char *out, size_t out_size) {
-    if ((size_t)(4 * ((len + 2) / 3) + 1) > out_size) return -1;
-    return EVP_EncodeBlock((unsigned char *)out, in, len);
+static int RandomBytes(uint8_t *out, size_t len) {
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd < 0) return -1;
+    size_t got = 0;
+    while (got < len) {
+        ssize_t n = read(fd, out + got, len - got);
+        if (n <= 0) { close(fd); return -1; }
+        got += (size_t)n;
+    }
+    close(fd);
+    return 0;
 }
 
-static int B64Decode(const char *in, unsigned char *out, size_t out_size) {
+static const char B64[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static int B64Encode(const uint8_t *in, size_t len, char *out, size_t out_size) {
+    size_t need = 4 * ((len + 2) / 3) + 1;
+    if (need > out_size) return -1;
+    size_t o = 0;
+    for (size_t i = 0; i < len; i += 3) {
+        uint32_t v = (uint32_t)in[i] << 16;
+        if (i + 1 < len) v |= (uint32_t)in[i + 1] << 8;
+        if (i + 2 < len) v |= in[i + 2];
+        out[o++] = B64[(v >> 18) & 63];
+        out[o++] = B64[(v >> 12) & 63];
+        out[o++] = i + 1 < len ? B64[(v >> 6) & 63] : '=';
+        out[o++] = i + 2 < len ? B64[v & 63] : '=';
+    }
+    out[o] = '\0';
+    return (int)o;
+}
+
+static int B64Value(char c) {
+    const char *p = c ? strchr(B64, c) : NULL;
+    return p ? (int)(p - B64) : -1;
+}
+
+/* Devuelve el número de bytes decodificados o -1 si no es base64 válido. */
+static int B64Decode(const char *in, uint8_t *out, size_t out_size) {
     size_t len = strlen(in);
-    if (len == 0 || len % 4 != 0 || (len / 4) * 3 > out_size) return -1;
-    int n = EVP_DecodeBlock(out, (const unsigned char *)in, (int)len);
-    if (n < 0) return -1;
-    if (in[len - 1] == '=') n--;
-    if (in[len - 2] == '=') n--;
-    return n;
+    if (len == 0 || len % 4 != 0) return -1;
+    size_t o = 0;
+    for (size_t i = 0; i < len; i += 4) {
+        int a = B64Value(in[i]), b = B64Value(in[i + 1]);
+        int c = in[i + 2] == '=' ? -2 : B64Value(in[i + 2]);
+        int d = in[i + 3] == '=' ? -2 : B64Value(in[i + 3]);
+        if (a < 0 || b < 0 || c == -1 || d == -1) return -1;
+        if ((c == -2 || d == -2) && i + 4 != len) return -1;
+        if (c == -2 && d != -2) return -1;
+        uint32_t v = ((uint32_t)a << 18) | ((uint32_t)b << 12) |
+                     ((uint32_t)(c < 0 ? 0 : c) << 6) | (uint32_t)(d < 0 ? 0 : d);
+        if (o >= out_size) return -1;
+        out[o++] = (uint8_t)(v >> 16);
+        if (c >= 0) { if (o >= out_size) return -1; out[o++] = (uint8_t)(v >> 8); }
+        if (d >= 0) { if (o >= out_size) return -1; out[o++] = (uint8_t)v; }
+    }
+    return (int)o;
 }
 
-/* --- claves ------------------------------------------------------------- */
+/* --- claves -------------------------------------------------------------- */
 
 #ifdef SECRETS_NO_INKVIEW
 const char *secrets_test_serial = "TEST-SERIAL";
@@ -76,113 +131,92 @@ static const char *DeviceSerial(void) { const char *s = GetSerialNumber(); retur
 static const char *DeviceModel(void) { const char *s = GetDeviceModel(); return s ? s : ""; }
 #endif
 
-static void DeviceSecret(char *out, size_t out_size) {
-    snprintf(out, out_size, "Pergamo-v1|%s|%s", DeviceSerial(), DeviceModel());
-}
-
-static int Derive(const char *secret, int iterations, unsigned char *key) {
-    if (!salt_ready) return -1;
-    return PKCS5_PBKDF2_HMAC(secret, (int)strlen(secret), salt, SALT_LEN,
-                             iterations, EVP_sha256(), KEY_LEN, key) == 1 ? 0 : -1;
-}
-
 static int EnsureDeviceKey(void) {
     if (device_key_ready) return 0;
+    if (!salt_ready) return -1;
     char secret[512];
-    DeviceSecret(secret, sizeof(secret));
-    if (strlen(DeviceSerial()) == 0) {
+    int n = snprintf(secret, sizeof(secret), "Pergamo-v2|%s|%s", DeviceSerial(), DeviceModel());
+    if (n < 0 || (size_t)n >= sizeof(secret)) n = (int)strlen(secret);
+    if (!DeviceSerial()[0]) {
         LogDebug("Secrets: el lector no devolvió número de serie; la clave del dispositivo es más débil.");
     }
-    int r = Derive(secret, DEVICE_ITERATIONS, device_key);
-    OPENSSL_cleanse(secret, sizeof(secret));
-    if (r == 0) device_key_ready = 1;
-    return r;
+    crypto_blake2b_keyed(device_key, KEY_LEN, salt, SALT_LEN, (const uint8_t *)secret, (size_t)n);
+    crypto_wipe(secret, sizeof(secret));
+    device_key_ready = 1;
+    return 0;
 }
 
-static int DerivePinKey(const char *pin, unsigned char *key) {
-    char secret[768];
-    DeviceSecret(secret, sizeof(secret));
-    size_t used = strlen(secret);
-    snprintf(secret + used, sizeof(secret) - used, "|pin|%s", pin);
-    int r = Derive(secret, PIN_ITERATIONS, key);
-    OPENSSL_cleanse(secret, sizeof(secret));
-    return r;
+static int DerivePinKey(const char *pin, uint8_t *key) {
+    if (!pin || EnsureDeviceKey() != 0) return -1;
+    void *work = malloc((size_t)ARGON2_BLOCKS * 1024);
+    if (!work) {
+        LogDebug("Secrets: no hay memoria para derivar la clave del PIN.");
+        return -1;
+    }
+    crypto_argon2_config config = { CRYPTO_ARGON2_ID, ARGON2_BLOCKS, ARGON2_PASSES, 1 };
+    crypto_argon2_inputs inputs = { (const uint8_t *)pin, salt, (uint32_t)strlen(pin), SALT_LEN };
+    crypto_argon2_extras extras = { device_key, NULL, KEY_LEN, 0 };
+    crypto_argon2(key, KEY_LEN, work, config, inputs, extras);
+    free(work);   /* crypto_argon2 borra el área de trabajo al terminar */
+    return 0;
 }
 
-/* --- AES-256-GCM -------------------------------------------------------- */
+/* --- cifrado autenticado -------------------------------------------------- */
 
-static int Seal(const unsigned char *key, const char *prefix, const char *plain,
+static int Seal(const uint8_t *key, const char *prefix, const char *plain,
                 char *out, size_t out_size) {
-    int plain_len = (int)strlen(plain);
-    unsigned char buf[IV_LEN + TAG_LEN + 1024];
-    if (plain_len > 1024) return -1;
-    unsigned char *iv = buf, *tag = buf + IV_LEN, *ct = buf + IV_LEN + TAG_LEN;
-    if (RAND_bytes(iv, IV_LEN) != 1) return -1;
-
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    int ok = ctx != NULL, len = 0, total = 0;
-    ok = ok && EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL) == 1;
-    ok = ok && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, IV_LEN, NULL) == 1;
-    ok = ok && EVP_EncryptInit_ex(ctx, NULL, NULL, key, iv) == 1;
-    ok = ok && EVP_EncryptUpdate(ctx, ct, &len, (const unsigned char *)plain, plain_len) == 1;
-    total = len;
-    ok = ok && EVP_EncryptFinal_ex(ctx, ct + total, &len) == 1;
-    total += len;
-    ok = ok && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, TAG_LEN, tag) == 1;
-    if (ctx) EVP_CIPHER_CTX_free(ctx);
-    if (!ok) return -1;
+    size_t plain_len = strlen(plain);
+    if (plain_len > MAX_PLAIN) return -1;
+    uint8_t buf[NONCE_LEN + MAC_LEN + MAX_PLAIN];
+    uint8_t *nonce = buf, *mac = buf + NONCE_LEN, *ct = buf + NONCE_LEN + MAC_LEN;
+    if (RandomBytes(nonce, NONCE_LEN) != 0) return -1;
+    crypto_aead_lock(ct, mac, key, nonce, NULL, 0, (const uint8_t *)plain, plain_len);
 
     size_t prefix_len = strlen(prefix);
     if (prefix_len >= out_size) return -1;
     memcpy(out, prefix, prefix_len);
-    int r = B64Encode(buf, IV_LEN + TAG_LEN + total, out + prefix_len, out_size - prefix_len);
-    OPENSSL_cleanse(buf, sizeof(buf));
-    return r < 0 ? -1 : 0;
-}
-
-static int Open(const unsigned char *key, const char *b64, char *out, size_t out_size) {
-    unsigned char buf[IV_LEN + TAG_LEN + 1100];
-    int n = B64Decode(b64, buf, sizeof(buf));
-    if (n < IV_LEN + TAG_LEN) return -1;
-    int ct_len = n - IV_LEN - TAG_LEN;
-    if ((size_t)ct_len + 1 > out_size) return -1;
-    unsigned char *iv = buf, *tag = buf + IV_LEN, *ct = buf + IV_LEN + TAG_LEN;
-
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    int ok = ctx != NULL, len = 0, total = 0;
-    ok = ok && EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL) == 1;
-    ok = ok && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, IV_LEN, NULL) == 1;
-    ok = ok && EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv) == 1;
-    ok = ok && EVP_DecryptUpdate(ctx, (unsigned char *)out, &len, ct, ct_len) == 1;
-    total = len;
-    ok = ok && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, TAG_LEN, tag) == 1;
-    ok = ok && EVP_DecryptFinal_ex(ctx, (unsigned char *)out + total, &len) == 1;
-    total += ok ? len : 0;
-    if (ctx) EVP_CIPHER_CTX_free(ctx);
-    OPENSSL_cleanse(buf, sizeof(buf));
-    if (!ok) {
-        OPENSSL_cleanse(out, out_size);
-        out[0] = '\0';
-        return -1;
-    }
-    out[total] = '\0';
+    int r = B64Encode(buf, NONCE_LEN + MAC_LEN + plain_len, out + prefix_len, out_size - prefix_len);
+    crypto_wipe(buf, sizeof(buf));
+    if (r < 0) { out[0] = '\0'; return -1; }
     return 0;
 }
 
-/* --- API ---------------------------------------------------------------- */
+static int Open(const uint8_t *key, const char *b64, char *out, size_t out_size) {
+    uint8_t buf[NONCE_LEN + MAC_LEN + MAX_PLAIN];
+    int n = B64Decode(b64, buf, sizeof(buf));
+    if (n < NONCE_LEN + MAC_LEN) return -1;
+    size_t ct_len = (size_t)n - NONCE_LEN - MAC_LEN;
+    if (ct_len + 1 > out_size) return -1;
+    int r = crypto_aead_unlock((uint8_t *)out, buf + NONCE_LEN, key, buf, NULL, 0,
+                               buf + NONCE_LEN + MAC_LEN, ct_len);
+    crypto_wipe(buf, sizeof(buf));
+    if (r != 0) {
+        crypto_wipe(out, out_size);
+        out[0] = '\0';
+        return -1;
+    }
+    out[ct_len] = '\0';
+    return 0;
+}
+
+/* --- API ----------------------------------------------------------------- */
 
 void SecretsLoadParams(const char *salt_b64, int pin_flag, const char *check) {
     salt_ready = 0;
     device_key_ready = 0;
     pin_key_ready = 0;
-    unsigned char decoded[SALT_LEN + 3];
+    crypto_wipe(device_key, sizeof(device_key));
+    crypto_wipe(pin_key, sizeof(pin_key));
+    uint8_t decoded[SALT_LEN + 3];
     if (salt_b64 && salt_b64[0] && B64Decode(salt_b64, decoded, sizeof(decoded)) == SALT_LEN) {
         memcpy(salt, decoded, SALT_LEN);
         salt_ready = 1;
-    } else if (RAND_bytes(salt, SALT_LEN) == 1) {
+    } else if (RandomBytes(salt, SALT_LEN) == 0) {
         salt_ready = 1;           /* primera vez: sal nueva */
+    } else {
+        LogDebug("Secrets: no se pudo generar la sal (/dev/urandom).");
     }
-    pin_enabled = pin_flag && check && check[0];
+    pin_enabled = pin_flag && check && strncmp(check, PREFIX_PIN, PREFIX_LEN) == 0;
     snprintf(pin_check, sizeof(pin_check), "%s", pin_enabled ? check : "");
 }
 
@@ -200,24 +234,25 @@ int SecretsPinEnabled(void) { return pin_enabled; }
 int SecretsPinUnlocked(void) { return !pin_enabled || pin_key_ready; }
 
 int SecretsIsEncrypted(const char *stored) {
-    return stored && (strncmp(stored, "enc1:", 5) == 0 || strncmp(stored, "enc2:", 5) == 0);
+    return stored && (strncmp(stored, PREFIX_DEVICE, PREFIX_LEN) == 0 ||
+                      strncmp(stored, PREFIX_PIN, PREFIX_LEN) == 0);
 }
 
 int SecretsNeedsPin(const char *stored) {
-    return stored && strncmp(stored, "enc2:", 5) == 0;
+    return stored && strncmp(stored, PREFIX_PIN, PREFIX_LEN) == 0;
 }
 
 int SecretsDecrypt(const char *stored, char *out, size_t out_size) {
     if (!out || out_size == 0) return SECRET_ERROR;
     out[0] = '\0';
     if (!stored || !stored[0]) return SECRET_OK;
-    if (strncmp(stored, "enc1:", 5) == 0) {
+    if (strncmp(stored, PREFIX_DEVICE, PREFIX_LEN) == 0) {
         if (EnsureDeviceKey() != 0) return SECRET_ERROR;
-        return Open(device_key, stored + 5, out, out_size) == 0 ? SECRET_OK : SECRET_ERROR;
+        return Open(device_key, stored + PREFIX_LEN, out, out_size) == 0 ? SECRET_OK : SECRET_ERROR;
     }
-    if (strncmp(stored, "enc2:", 5) == 0) {
+    if (strncmp(stored, PREFIX_PIN, PREFIX_LEN) == 0) {
         if (!pin_key_ready) return SECRET_LOCKED;
-        return Open(pin_key, stored + 5, out, out_size) == 0 ? SECRET_OK : SECRET_ERROR;
+        return Open(pin_key, stored + PREFIX_LEN, out, out_size) == 0 ? SECRET_OK : SECRET_ERROR;
     }
     snprintf(out, out_size, "%s", stored);   /* texto plano antiguo */
     return SECRET_PLAINTEXT;
@@ -229,39 +264,40 @@ int SecretsEncrypt(const char *plain, char *out, size_t out_size) {
     if (!plain || !plain[0]) return 0;
     if (pin_enabled) {
         if (!pin_key_ready) return -1;
-        return Seal(pin_key, "enc2:", plain, out, out_size);
+        return Seal(pin_key, PREFIX_PIN, plain, out, out_size);
     }
     if (EnsureDeviceKey() != 0) return -1;
-    return Seal(device_key, "enc1:", plain, out, out_size);
+    return Seal(device_key, PREFIX_DEVICE, plain, out, out_size);
 }
 
 int SecretsUnlock(const char *pin) {
     if (!pin_enabled) return 0;
-    unsigned char key[KEY_LEN];
+    uint8_t key[KEY_LEN];
     if (!pin || DerivePinKey(pin, key) != 0) return -1;
     char plain[64];
-    int ok = strncmp(pin_check, "enc2:", 5) == 0 &&
-             Open(key, pin_check + 5, plain, sizeof(plain)) == 0 &&
+    int ok = strncmp(pin_check, PREFIX_PIN, PREFIX_LEN) == 0 &&
+             Open(key, pin_check + PREFIX_LEN, plain, sizeof(plain)) == 0 &&
              strcmp(plain, CHECK_PLAINTEXT) == 0;
     if (ok) {
         memcpy(pin_key, key, KEY_LEN);
         pin_key_ready = 1;
     }
-    OPENSSL_cleanse(key, sizeof(key));
+    crypto_wipe(key, sizeof(key));
+    crypto_wipe(plain, sizeof(plain));
     return ok ? 0 : -1;
 }
 
 int SecretsEnablePin(const char *pin) {
     if (!pin || !pin[0]) return -1;
-    unsigned char key[KEY_LEN];
+    uint8_t key[KEY_LEN];
     if (DerivePinKey(pin, key) != 0) return -1;
     char check[256];
-    if (Seal(key, "enc2:", CHECK_PLAINTEXT, check, sizeof(check)) != 0) {
-        OPENSSL_cleanse(key, sizeof(key));
+    if (Seal(key, PREFIX_PIN, CHECK_PLAINTEXT, check, sizeof(check)) != 0) {
+        crypto_wipe(key, sizeof(key));
         return -1;
     }
     memcpy(pin_key, key, KEY_LEN);
-    OPENSSL_cleanse(key, sizeof(key));
+    crypto_wipe(key, sizeof(key));
     pin_key_ready = 1;
     pin_enabled = 1;
     snprintf(pin_check, sizeof(pin_check), "%s", check);
@@ -271,6 +307,6 @@ int SecretsEnablePin(const char *pin) {
 void SecretsDisablePin(void) {
     pin_enabled = 0;
     pin_check[0] = '\0';
-    OPENSSL_cleanse(pin_key, sizeof(pin_key));
+    crypto_wipe(pin_key, sizeof(pin_key));
     pin_key_ready = 0;
 }

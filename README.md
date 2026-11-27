@@ -23,14 +23,16 @@ An OPDS catalog client built in C for PocketBook e-readers. This application all
 Add a server with URL `https://madrid.ebiblio.es/v1/home.opds2` and enter your
 library card number and password in the server's **Usuario** and **Contraseña**
 fields. Passwords are never stored in plain text: they are encrypted with
-AES-256-GCM using a key derived (PBKDF2-HMAC-SHA256) from this reader's serial
+XChaCha20-Poly1305 using a key derived (BLAKE2b) from this reader's serial
 number and model, so a copy of the configuration file is useless on another
 device. For stronger protection, turn on **Configuración → PIN para las
-contraseñas**: the key then also depends on a PIN you type when opening a server
-that has a password. Without the PIN, someone holding the reader itself could
-still recover the passwords. If you forget the PIN, the app offers to delete the
-protected passwords so you can enter them again. Plain-text passwords from
-older versions are encrypted automatically on first launch. The OAuth access token is kept in memory only.
+contraseñas**: the key then also depends on a PIN (Argon2id, 4 MiB) that you type
+when opening a server that has a password. Without the PIN, someone holding the
+reader itself could still recover the passwords. If you forget the PIN, the app
+offers to delete the protected passwords so you can enter them again. Plain-text
+passwords from older versions are encrypted automatically on first launch. The
+cryptography comes from the bundled [Monocypher](https://monocypher.org) 4.0.3
+(`monocypher.c`, CC0/BSD-2), so the app does not depend on the reader's OpenSSL. The OAuth access token is kept in memory only.
 Credentials and bearer tokens are sent only to `madrid.ebiblio.es` over HTTPS.
 
 The **Mis préstamos y reservas** screen follows the account links supplied by

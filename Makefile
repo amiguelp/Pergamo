@@ -5,13 +5,13 @@ SYSROOT = $(SDK_PATH)/arm-obreey-linux-gnueabi/sysroot
 CC = $(SDK_PATH)/bin/arm-obreey-linux-gnueabi-gcc
 
 APP_NAME = Pergamo.app
-SRC = main.c network.c parser.c ebiblio.c ui.c launcher_icon.c uninstall.c i18n.c secrets.c
+SRC = main.c network.c parser.c ebiblio.c ui.c launcher_icon.c uninstall.c i18n.c secrets.c monocypher.c
 OBJ = $(SRC:.c=.o) launcher_icons.o
 
 # LDFLAGS: Changed -lft2 to -lfreetype
 # Added explicit path to the sysroot library folder where libfreetype.so lives
 LDFLAGS = -L$(SYSROOT)/usr/lib \
-          -linkview -lcurl -lcrypto -lxml2 -lfreetype \
+          -linkview -lcurl -lxml2 -lfreetype \
           -Wl,-Bstatic -ljson-c -Wl,-Bdynamic -lm -ldl
 
 CFLAGS = -Wall -O2 \
@@ -30,7 +30,7 @@ launcher_icon.o: launcher_icon.h
 uninstall.o: uninstall.h launcher_icon.h opds_app.h
 ebiblio.o: opds_app.h i18n.h
 i18n.o: i18n.h opds_app.h
-secrets.o: secrets.h
+secrets.o: secrets.h monocypher.h
 network.o: opds_app.h i18n.h
 
 %.o: %.c
