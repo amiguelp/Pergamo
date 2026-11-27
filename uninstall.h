@@ -2,5 +2,6 @@
 #define UNINSTALL_H
 
 int UninstallPergamo(void);
+int ClearPergamoCoverCache(void);
 
 #endif

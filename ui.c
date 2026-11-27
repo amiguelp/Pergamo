@@ -288,7 +288,7 @@ void ShowDownloadProgress(long long total, long long current) {
     DrawRect(bx - 20, by - 80, bw + 40, 200, 0x000000);
 
     SetTextFont(36, 0x000000);
-    char buf[64]; snprintf(buf, sizeof(buf), "Descargando: %d%%", percent);
+    char buf[64]; snprintf(buf, sizeof(buf), T("Descargando: %d%%"), percent);
     DrawTextRect(bx, by - 50, bw, 40, buf, ALIGN_CENTER);
     
     DrawRect(bx, by + 10, bw, bh, 0x000000);
@@ -302,7 +302,7 @@ int CheckDownloadCancel() { return 0; }
 
 int EnsureNetwork() { 
     if (NetConnect(NULL) != 0) {
-        Message(ICON_ERROR, "Sin conexión", "Active el Wi-Fi para conectarse.", 3000);
+        Message(ICON_ERROR, T("Sin conexión"), T("Active el Wi-Fi para conectarse."), 3000);
         return -1; 
     }
     return 0; 
@@ -592,12 +592,12 @@ void JumpToPageCallback(char *text) {
             jump_target_page = new_local_page;
             LoadCatalog(page_stack[found_index]);
         } else {
-            Message(ICON_INFORMATION, "Error de salto", "No se encontró la página en el historial.", 2000);
+            Message(ICON_INFORMATION, T("Error de salto"), T("No se encontró la página en el historial."), 2000);
             Repaint();
         }
     } 
     else {
-        Message(ICON_INFORMATION, "Página desconocida", "No se puede ir a páginas futuras sin cargarlas primero.", 3000);
+        Message(ICON_INFORMATION, T("Página desconocida"), T("No se puede ir a páginas futuras sin cargarlas primero."), 3000);
         Repaint();
     }
 }
@@ -605,7 +605,7 @@ void JumpToPageCallback(char *text) {
 void TriggerLibraryRefresh() {
     if (access("/usr/bin/iv2sh", F_OK) == 0) system("/usr/bin/iv2sh SendEventTo -1 154 &");
     else if (access("/ebrmain/bin/iv2sh", F_OK) == 0) system("/ebrmain/bin/iv2sh SendEventTo -1 154 &");
-    else Message(ICON_INFORMATION, "Error", "No se encontró iv2sh", 2000);
+    else Message(ICON_INFORMATION, "Error", T("No se encontró iv2sh"), 2000);
 }
 
 static int TriggerLibraryScan(void) {
@@ -692,7 +692,7 @@ void LoadCatalog(const char *url) {
     int hh = sys_height / 14; 
     FillArea(0, 0, sys_width, hh, top_bg);
     SetTextFont(36, top_fg);
-    DrawTextRect(0, (hh/2)-20, sys_width, 40, "Conectando...", ALIGN_CENTER);
+    DrawTextRect(0, (hh/2)-20, sys_width, 40, T("Conectando..."), ALIGN_CENTER);
     FullUpdate(); 
     
     strncpy(last_loaded_url, url, MAX_STR_LEN - 1); 
@@ -704,7 +704,7 @@ void LoadCatalog(const char *url) {
     if (is_ebiblio_server && !IsEbiblioURL(last_loaded_url)) {
         entry_count = 0;
         snprintf(catalog_error, sizeof(catalog_error),
-                 "Se rechazó un enlace de catálogo fuera de eBiblio Madrid.");
+                 T("Se rechazó un enlace de catálogo fuera de eBiblio Madrid."));
         current_state = STATE_BROWSING;
         Repaint();
         return;
@@ -727,7 +727,7 @@ void LoadCatalog(const char *url) {
         if (parse_result != 0) {
             entry_count = 0;
             snprintf(catalog_error, sizeof(catalog_error),
-                     "El servidor respondió, pero el contenido no es un catálogo OPDS válido.");
+                     T("El servidor respondió, pero el contenido no es un catálogo OPDS válido."));
             current_state = STATE_BROWSING;
             Repaint();
         } else {
@@ -762,8 +762,8 @@ void LoadCatalog(const char *url) {
     } else { 
         entry_count = 0; 
         snprintf(catalog_error, sizeof(catalog_error),
-                 "No se pudo cargar el catálogo.\n%s",
-                 network_error[0] ? network_error : "Error de red sin más detalles.");
+                 T("No se pudo cargar el catálogo.\n%s"),
+                 network_error[0] ? network_error : T("Error de red sin más detalles."));
         current_state = STATE_BROWSING;
         Repaint();
     }
@@ -793,7 +793,7 @@ void PerformSearch(char *text) {
     if (!text || strlen(text) == 0) { Repaint(); return; }
 
     if (strlen(current_search_url) == 0) {
-        Message(ICON_ERROR, "No compatible", "Este servidor OPDS no ofrece un enlace de búsqueda.", 2000);
+        Message(ICON_ERROR, T("No compatible"), T("Este servidor OPDS no ofrece un enlace de búsqueda."), 2000);
         Repaint(); return;
     }
 
@@ -824,7 +824,7 @@ void PerformSearch(char *text) {
                                    encoded_query);
         }
         if (url_length < 0 || (size_t)url_length >= url_capacity) {
-            Message(ICON_ERROR, "Búsqueda", "La dirección de búsqueda es demasiado larga.", 4000);
+            Message(ICON_ERROR, T("Búsqueda"), T("La dirección de búsqueda es demasiado larga."), 4000);
             Repaint();
             return;
         }
@@ -847,8 +847,8 @@ void PerformSearch(char *text) {
                       servers[current_server_index].pass, &osd_chunk,
                       network_error, sizeof(network_error)) != 0) {
             snprintf(catalog_error, sizeof(catalog_error),
-                     "No se pudo consultar la búsqueda.\n%s",
-                     network_error[0] ? network_error : "Error de red sin más detalles.");
+                     T("No se pudo consultar la búsqueda.\n%s"),
+                     network_error[0] ? network_error : T("Error de red sin más detalles."));
             entry_count = 0;
             current_state = STATE_BROWSING;
             Repaint();
@@ -860,7 +860,7 @@ void PerformSearch(char *text) {
         free(osd_chunk.memory);
         if (parse_result != 0) {
             snprintf(catalog_error, sizeof(catalog_error),
-                     "El servidor respondió, pero no se pudo leer su descripción de búsqueda OpenSearch.");
+                     T("El servidor respondió, pero no se pudo leer su descripción de búsqueda OpenSearch."));
             entry_count = 0;
             current_state = STATE_BROWSING;
             Repaint();
@@ -922,17 +922,17 @@ void PerformSearch(char *text) {
 void DrawMainMenu() {
     SetPanelType(0); nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0;
     int margin = sys_width / 20, gap = sys_height / 60, hh = sys_height / 14, row_h = sys_height / 12;
-    int uninstall_w = sys_width / 4;
-    int uninstall_x = sys_width - margin * 2 - uninstall_w;
-    int uninstall_y = gap;
-    int uninstall_h = hh - gap;
+    int settings_w = sys_width / 4;
+    int settings_x = sys_width - margin * 2 - settings_w;
+    int settings_y = gap;
+    int settings_h = hh - gap;
     SetTextFont(48, 0x000000);
-    DrawTextRect(0, gap, uninstall_x - gap, 60, "Biblioteca OPDS", ALIGN_CENTER);
-    FillArea(uninstall_x, uninstall_y, uninstall_w, uninstall_h, 0xCC0000);
-    DrawRect(uninstall_x, uninstall_y, uninstall_w, uninstall_h, 0x000000);
-    SetTextFont(24, 0xFFFFFF);
-    DrawTextRect(uninstall_x, uninstall_y + (uninstall_h - 30) / 2, uninstall_w, 30,
-                 "Desinstalar", ALIGN_CENTER);
+    DrawTextRect(0, gap, settings_x - gap, 60, T("Biblioteca OPDS"), ALIGN_CENTER);
+    FillArea(settings_x, settings_y, settings_w, settings_h, 0xDDDDDD);
+    DrawRect(settings_x, settings_y, settings_w, settings_h, 0x000000);
+    SetTextFont(24, 0x000000);
+    DrawTextRect(settings_x, settings_y + (settings_h - 30) / 2, settings_w, 30,
+                 T("Configuración"), ALIGN_CENTER);
     DrawLine(margin, hh, sys_width - margin, hh, 0x000000);
     int y = hh + gap; SetTextFont(36, 0x000000);
     for (int i = 0; i < server_count; i++) {
@@ -942,24 +942,24 @@ void DrawMainMenu() {
         y += row_h; 
     }
     y += gap; 
-    DrawButton(margin * 2, y, sys_width - (margin * 4), row_h, "+ Agregar servidor", 0);
+    DrawButton(margin * 2, y, sys_width - (margin * 4), row_h, T("+ Agregar servidor"), 0);
     DrawButton(margin * 2, y + row_h + gap, sys_width - (margin * 4), row_h,
-               "Salir de la aplicación", 2);
+               T("Salir de la aplicación"), 2);
 
     SetTextFont(24, 0x555555); 
-    DrawTextRect(0, sys_height - 40, sys_width, 30, "v1.0", ALIGN_CENTER);
+    DrawTextRect(0, sys_height - 40, sys_width, 30, "v" PERGAMO_VERSION, ALIGN_CENTER);
 }
 
 void HandleMainMenuTouch(int x, int y) {
     int margin = sys_width / 20, gap = sys_height / 60, hh = sys_height / 14, row_h = sys_height / 12, list_y = hh + gap;
-    int uninstall_w = sys_width / 4;
-    int uninstall_x = sys_width - margin * 2 - uninstall_w;
-    int uninstall_y = gap;
-    int uninstall_h = hh - gap;
-    if (x >= uninstall_x && x <= uninstall_x + uninstall_w &&
-        y >= uninstall_y && y <= uninstall_y + uninstall_h) {
-        FlashArea(uninstall_x, uninstall_y, uninstall_w, uninstall_h);
-        current_state = STATE_UNINSTALL_CONFIRM;
+    int settings_w = sys_width / 4;
+    int settings_x = sys_width - margin * 2 - settings_w;
+    int settings_y = gap;
+    int settings_h = hh - gap;
+    if (x >= settings_x && x <= settings_x + settings_w &&
+        y >= settings_y && y <= settings_y + settings_h) {
+        FlashArea(settings_x, settings_y, settings_w, settings_h);
+        current_state = STATE_SETTINGS;
         Repaint();
         return;
     }
@@ -986,8 +986,147 @@ void HandleMainMenuTouch(int x, int y) {
     if (x >= margin * 2 && x <= sys_width - margin * 2 &&
         y >= action_y && y <= action_y + row_h) {
         FlashArea(margin * 2, action_y, sys_width - margin * 4, row_h);
-        Message(ICON_INFORMATION, "Saliendo", "Limpiando...", 0); Repaint();
+        Message(ICON_INFORMATION, T("Saliendo"), T("Limpiando..."), 0); Repaint();
         ManageImageCache(); TriggerLibraryRefresh(); CloseApp();
+    }
+}
+
+// --- Configuración ---------------------------------------------------------
+
+enum {
+    SETTINGS_LANGUAGE,
+    SETTINGS_DEBUG_LOG,
+    SETTINGS_CLEAR_CACHE,
+    SETTINGS_ABOUT,
+    SETTINGS_UNINSTALL,
+    SETTINGS_ITEM_COUNT
+};
+
+static int DebugLogEnabled(void) {
+    return access(DEBUG_LOG_TRIGGER, F_OK) == 0;
+}
+
+static void SettingsGeometry(int *margin, int *gap, int *hh, int *row_h, int *top) {
+    *margin = sys_width / 20;
+    *gap = sys_height / 60;
+    *hh = sys_height / 14;
+    *row_h = sys_height / 12;
+    *top = *hh + *gap * 2;
+}
+
+void DrawSettings() {
+    SetPanelType(0);
+    int margin, gap, hh, row_h, top;
+    SettingsGeometry(&margin, &gap, &hh, &row_h, &top);
+
+    SetTextFont(48, 0x000000);
+    DrawTextRect(0, gap, sys_width, 60, T("Configuración"), ALIGN_CENTER);
+    DrawLine(margin, hh, sys_width - margin, hh, 0x000000);
+
+    char text[256];
+    int y = top;
+    for (int i = 0; i < SETTINGS_ITEM_COUNT; i++) {
+        int style = 0;
+        switch (i) {
+            case SETTINGS_LANGUAGE:
+                snprintf(text, sizeof(text), T("Idioma: %s"),
+                         LanguageSettingName(app_language_setting));
+                break;
+            case SETTINGS_DEBUG_LOG:
+                snprintf(text, sizeof(text), T("Registro de depuración: %s"),
+                         DebugLogEnabled() ? T("activado") : T("desactivado"));
+                break;
+            case SETTINGS_CLEAR_CACHE:
+                snprintf(text, sizeof(text), "%s", T("Vaciar caché de portadas"));
+                break;
+            case SETTINGS_ABOUT:
+                snprintf(text, sizeof(text), "%s", T("Acerca de"));
+                break;
+            case SETTINGS_UNINSTALL:
+                snprintf(text, sizeof(text), "%s", T("Desinstalar"));
+                style = 2;
+                break;
+        }
+        DrawButton(margin * 2, y, sys_width - margin * 4, row_h, text, style);
+        y += row_h + gap;
+    }
+    DrawButton(margin * 2, sys_height - row_h - gap * 3, sys_width - margin * 4, row_h,
+               T("Volver"), 1);
+
+    SetTextFont(24, 0x555555);
+    DrawTextRect(0, sys_height - 40, sys_width, 30, "v" PERGAMO_VERSION, ALIGN_CENTER);
+}
+
+static void CloseAboutDialog(int button) {
+    (void)button;
+    Repaint();
+}
+
+void HandleSettingsTouch(int x, int y) {
+    int margin, gap, hh, row_h, top;
+    SettingsGeometry(&margin, &gap, &hh, &row_h, &top);
+    if (x < margin * 2 || x > sys_width - margin * 2) return;
+
+    int back_y = sys_height - row_h - gap * 3;
+    if (y >= back_y && y <= back_y + row_h) {
+        FlashArea(margin * 2, back_y, sys_width - margin * 4, row_h);
+        current_state = STATE_MAIN_MENU;
+        Repaint();
+        return;
+    }
+
+    if (y < top) return;
+    int item = (y - top) / (row_h + gap);
+    int item_y = top + item * (row_h + gap);
+    if (item >= SETTINGS_ITEM_COUNT || y > item_y + row_h) return;
+    FlashArea(margin * 2, item_y, sys_width - margin * 4, row_h);
+
+    switch (item) {
+        case SETTINGS_LANGUAGE: {
+            /* Automático -> Español -> English -> Automático */
+            int next = app_language_setting == LANG_AUTO ? LANG_ES
+                     : app_language_setting == LANG_ES ? LANG_EN : LANG_AUTO;
+            SetLanguageSetting(next);
+            Repaint();
+            break;
+        }
+        case SETTINGS_DEBUG_LOG: {
+            int ok;
+            if (DebugLogEnabled()) {
+                ok = unlink(DEBUG_LOG_TRIGGER) == 0;
+            } else {
+                FILE *f = fopen(DEBUG_LOG_TRIGGER, "w");
+                ok = f != NULL;
+                if (f) fclose(f);
+            }
+            if (!ok) {
+                Message(ICON_ERROR, T("Registro de depuración"),
+                        T("No se pudo cambiar el registro de depuración."), 3000);
+            } else if (DebugLogEnabled()) {
+                Message(ICON_INFORMATION, T("Registro de depuración"),
+                        T("El registro se guardará en applications/Pergamo/opds_client.log"), 3000);
+            }
+            Repaint();
+            break;
+        }
+        case SETTINGS_CLEAR_CACHE:
+            ClearPergamoCoverCache();
+            Message(ICON_INFORMATION, T("Caché vaciada"),
+                    T("Se borraron las portadas guardadas."), 2500);
+            Repaint();
+            break;
+        case SETTINGS_ABOUT: {
+            static char about[768];
+            snprintf(about, sizeof(about),
+                     T("Pergamo %s\n\nCliente OPDS para lectores PocketBook: explora catálogos (Calibre-Web, COPS, Proyecto Gutenberg...) y eBiblio Madrid, y descarga libros directamente al lector.\n\ngithub.com/amiguelp/Pergamo"),
+                     PERGAMO_VERSION);
+            Dialog(ICON_INFORMATION, T("Acerca de"), about, "OK", NULL, CloseAboutDialog);
+            break;
+        }
+        case SETTINGS_UNINSTALL:
+            current_state = STATE_UNINSTALL_CONFIRM;
+            Repaint();
+            break;
     }
 }
 
@@ -997,21 +1136,21 @@ void DrawUninstallConfirmation() {
     int row_h = sys_height / 12;
 
     SetTextFont(48, 0x000000);
-    DrawTextRect(0, sys_height / 6, sys_width, 70, "Desinstalar Pergamo", ALIGN_CENTER);
+    DrawTextRect(0, sys_height / 6, sys_width, 70, T("Desinstalar Pergamo"), ALIGN_CENTER);
     SetTextFont(30, 0x000000);
     DrawTextRect(margin, sys_height / 3, sys_width - margin * 2, 55,
-                 "Se eliminarán la aplicación, sus ajustes y caché.", ALIGN_CENTER);
+                 T("Se eliminarán la aplicación, sus ajustes y caché."), ALIGN_CENTER);
     DrawTextRect(margin, sys_height / 3 + 55 + gap, sys_width - margin * 2, 55,
-                 "Los libros descargados y otros archivos se conservarán.", ALIGN_CENTER);
+                 T("Los libros descargados y otros archivos se conservarán."), ALIGN_CENTER);
     DrawTextRect(margin, sys_height / 3 + 110 + gap * 2, sys_width - margin * 2, 55,
-                 "La copia de seguridad de view.json también se conservará.", ALIGN_CENTER);
+                 T("La copia de seguridad de view.json también se conservará."), ALIGN_CENTER);
 
     int button_gap = gap;
     int button_w = (sys_width - margin * 2 - button_gap) / 2;
     int button_y = sys_height - row_h - gap;
-    DrawButton(margin, button_y, button_w, row_h, "Cancelar", 1);
+    DrawButton(margin, button_y, button_w, row_h, T("Cancelar"), 1);
     DrawButton(margin + button_w + button_gap, button_y, button_w, row_h,
-               "Desinstalar", 2);
+               T("Desinstalar"), 2);
 }
 
 void HandleUninstallConfirmationTouch(int x, int y) {
@@ -1025,7 +1164,7 @@ void HandleUninstallConfirmationTouch(int x, int y) {
     if (y < button_y || y > button_y + row_h) return;
     if (x >= margin && x < margin + button_w) {
         FlashArea(margin, button_y, button_w, row_h);
-        current_state = STATE_MAIN_MENU;
+        current_state = STATE_SETTINGS;
         Repaint();
         return;
     }
@@ -1037,8 +1176,8 @@ void HandleUninstallConfirmationTouch(int x, int y) {
     FlashArea(margin + button_w + button_gap, button_y, button_w, row_h);
     int result = UninstallPergamo();
     if (result < 0) {
-        current_state = STATE_MAIN_MENU;
-        Message(ICON_ERROR, "Desinstalación", "No se pudo retirar del launcher; no se borraron archivos.", 5000);
+        current_state = STATE_SETTINGS;
+        Message(ICON_ERROR, T("Desinstalación"), T("No se pudo retirar del launcher; no se borraron archivos."), 5000);
         Repaint();
         return;
     }
@@ -1060,18 +1199,18 @@ void DrawServerOptions() {
     DrawTextRect(0, gap, sys_width, 60, servers[current_server_index].name, ALIGN_CENTER);
 
     int top_y = sys_height / 5;
-    DrawButton(bx, top_y, bw, row_h, "Explorar catálogo", 0);
+    DrawButton(bx, top_y, bw, row_h, T("Explorar catálogo"), 0);
     int is_ebiblio = IsEbiblioURL(servers[current_server_index].url);
     DrawButton(bx, top_y + row_h + gap, bw, row_h,
-               is_ebiblio ? "Mis préstamos y reservas" : "Editar datos", 0);
+               is_ebiblio ? T("Mis préstamos y reservas") : T("Editar datos"), 0);
     if (is_ebiblio) {
-        DrawButton(bx, top_y + (row_h + gap) * 2, bw, row_h, "Editar datos", 0);
+        DrawButton(bx, top_y + (row_h + gap) * 2, bw, row_h, T("Editar datos"), 0);
     }
 
     int mid_y = sys_height / 2;
-    DrawButton(bx, mid_y, bw, row_h, "Eliminar servidor", 2);
+    DrawButton(bx, mid_y, bw, row_h, T("Eliminar servidor"), 2);
 
-    DrawButton(m, sys_height - 110, sys_width - (m * 2), 90, "Menú principal", 1);
+    DrawButton(m, sys_height - 110, sys_width - (m * 2), 90, T("Menú principal"), 1);
 }
 
 void HandleServerOptionsTouch(int x, int y) {
@@ -1102,7 +1241,7 @@ void HandleServerOptionsTouch(int x, int y) {
                                  servers[current_server_index].user,
                                  servers[current_server_index].pass, 0,
                                  &chunk, error, sizeof(error)) != 0) {
-                Message(ICON_ERROR, "eBiblio", error[0] ? error : "No se pudo consultar la cuenta.", 5000);
+                Message(ICON_ERROR, "eBiblio", error[0] ? error : T("No se pudo consultar la cuenta."), 5000);
                 Repaint();
                 return;
             }
@@ -1112,7 +1251,7 @@ void HandleServerOptionsTouch(int x, int y) {
                                                account_url, sizeof(account_url));
             free(chunk.memory);
             if (found != 0) {
-                Message(ICON_ERROR, "eBiblio", "No se encontró el enlace a préstamos y reservas.", 5000);
+                Message(ICON_ERROR, "eBiblio", T("No se encontró el enlace a préstamos y reservas."), 5000);
                 Repaint();
                 return;
             }
@@ -1145,10 +1284,10 @@ void HandleServerOptionsTouch(int x, int y) {
 void DrawServerForm() {
     int gap = sys_height / 40, row_h = sys_height / 12, box_x = sys_width / 4, box_w = sys_width - box_x - (sys_width / 10), y = (sys_height / 10);
     SetTextFont(48, 0x000000); 
-    DrawTextRect(0, gap, sys_width, 60, (editing_server_index >= 0) ? "Editar servidor" : "Agregar servidor", ALIGN_CENTER);
+    DrawTextRect(0, gap, sys_width, 60, (editing_server_index >= 0) ? T("Editar servidor") : T("Agregar servidor"), ALIGN_CENTER);
     SetTextFont(36, 0x000000); 
     
-    const char *labels[] = {"Nombre:", "URL:", "Usuario:", "Contraseña:", "Miniaturas:", "Filas:"};
+    const char *labels[] = {T("Nombre:"), "URL:", T("Usuario:"), T("Contraseña:"), T("Miniaturas:"), T("Filas:")};
     char *vals[] = {temp_server.name, temp_server.url, temp_server.user, temp_server.pass};
     
     for(int i=0; i<6; i++) {
@@ -1176,18 +1315,18 @@ void DrawServerForm() {
         y += row_h + gap;
     }
     y += gap; 
-    DrawButton(20, y, (sys_width / 2) - 40, row_h, "CANCELAR", 0);
-    DrawButton(sys_width / 2 + 20, y, (sys_width / 2) - 40, row_h, "GUARDAR", 1);
+    DrawButton(20, y, (sys_width / 2) - 40, row_h, T("CANCELAR"), 0);
+    DrawButton(sys_width / 2 + 20, y, (sys_width / 2) - 40, row_h, T("GUARDAR"), 1);
 }
 
 void HandleServerFormTouch(int x, int y) {
     int gap = sys_height / 40, row_h = sys_height / 12, ly = (sys_height / 10);
     int box_x = sys_width / 4, box_w = sys_width - box_x - (sys_width / 10);
     
-    if (y >= ly && y <= ly + row_h) { FlashArea(box_x, ly, box_w, row_h); OpenKeyboard("Nombre", temp_server.name, MAX_STR_LEN - 1, 0, KbdCallback); return; } ly += row_h + gap;
+    if (y >= ly && y <= ly + row_h) { FlashArea(box_x, ly, box_w, row_h); OpenKeyboard(T("Nombre"), temp_server.name, MAX_STR_LEN - 1, 0, KbdCallback); return; } ly += row_h + gap;
     if (y >= ly && y <= ly + row_h) { FlashArea(box_x, ly, box_w, row_h); OpenKeyboard("URL", temp_server.url, MAX_STR_LEN - 1, 0, KbdCallback); return; } ly += row_h + gap;
-    if (y >= ly && y <= ly + row_h) { FlashArea(box_x, ly, box_w, row_h); OpenKeyboard("Usuario", temp_server.user, MAX_STR_LEN - 1, 0, KbdCallback); return; } ly += row_h + gap;
-    if (y >= ly && y <= ly + row_h) { FlashArea(box_x, ly, box_w, row_h); OpenKeyboard("Contraseña", temp_server.pass, MAX_STR_LEN - 1, 0, KbdCallback); return; } ly += row_h + gap;
+    if (y >= ly && y <= ly + row_h) { FlashArea(box_x, ly, box_w, row_h); OpenKeyboard(T("Usuario"), temp_server.user, MAX_STR_LEN - 1, 0, KbdCallback); return; } ly += row_h + gap;
+    if (y >= ly && y <= ly + row_h) { FlashArea(box_x, ly, box_w, row_h); OpenKeyboard(T("Contraseña"), temp_server.pass, MAX_STR_LEN - 1, 0, KbdCallback); return; } ly += row_h + gap;
     
     if (y >= ly && y <= ly + row_h) { FlashArea(box_x, ly + (row_h / 2) - 20, 40, 40); temp_server.fetch_thumbs = !temp_server.fetch_thumbs; Repaint(); return; } ly += row_h + gap;
     
@@ -1246,12 +1385,12 @@ void DrawBrowsingView() {
     DrawTextRect(title_x, (hh / 2) + 5, title_w, 30, display_title, ALIGN_LEFT | DOTS);
 
     SetTextFont(36, top_fg); 
-    DrawTextRect(title_x, hh / 6, title_w, 40, "Catálogo", ALIGN_LEFT | DOTS);
+    DrawTextRect(title_x, hh / 6, title_w, 40, T("Catálogo"), ALIGN_LEFT | DOTS);
 
-    DrawButton(search_x, btn_y, btn_w, btn_h, "BUSCAR", 0);
-    DrawButton(home_x, btn_y, btn_w, btn_h, "INICIO", 0); 
-    DrawButton(back_x, btn_y, btn_w, btn_h, "ATRÁS", 0); 
-    DrawButton(exit_x, btn_y, btn_w, btn_h, "SALIR", 2);
+    DrawButton(search_x, btn_y, btn_w, btn_h, T("BUSCAR"), 0);
+    DrawButton(home_x, btn_y, btn_w, btn_h, T("INICIO"), 0); 
+    DrawButton(back_x, btn_y, btn_w, btn_h, T("ATRÁS"), 0); 
+    DrawButton(exit_x, btn_y, btn_w, btn_h, T("SALIR"), 2);
 
     int list_start_y = hh + gap;
     int list_avail_h = (footer_y - 55) - list_start_y;
@@ -1266,7 +1405,7 @@ void DrawBrowsingView() {
         } else {
             SetTextFont(36, 0x000000);
             DrawTextRect(0, sys_height / 3, sys_width, 60,
-                         "No se encontraron elementos.", ALIGN_CENTER);
+                         T("No se encontraron elementos."), ALIGN_CENTER);
         }
     } else {
         int start = current_page * entries_per_page, end = start + entries_per_page;
@@ -1343,22 +1482,22 @@ void DrawBrowsingView() {
         
         if (total_results > 0) {
             int absolute_max_pages = (total_results + entries_per_page - 1) / entries_per_page;
-            snprintf(page_txt, sizeof(page_txt), "Página %d / %d   |   Catálogo total: %d", absolute_page, absolute_max_pages, total_results);
+            snprintf(page_txt, sizeof(page_txt), T("Página %d / %d   |   Catálogo total: %d"), absolute_page, absolute_max_pages, total_results);
         } else {
             int known_max = current_global_offset + local_max_pages;
             if (strlen(next_page_url) == 0) {
-                snprintf(page_txt, sizeof(page_txt), "Página %d / %d", absolute_page, known_max);
+                snprintf(page_txt, sizeof(page_txt), T("Página %d / %d"), absolute_page, known_max);
             } else {
-                snprintf(page_txt, sizeof(page_txt), "Página %d / %d+", absolute_page, known_max);
+                snprintf(page_txt, sizeof(page_txt), T("Página %d / %d+"), absolute_page, known_max);
             }
         }
         
         SetTextFont(24, 0x555555); 
         DrawTextRect(0, footer_y - 45, sys_width, 30, page_txt, ALIGN_CENTER);
         
-        if (current_page > 0 || page_stack_ptr > 0) DrawButton(20, footer_y, sys_width/2 - 30, row_h, "<< ANTERIOR", 0);
-        if (end < entry_count) DrawButton(sys_width/2 + 10, footer_y, sys_width/2 - 30, row_h, "SIGUIENTE >>", 0);
-        else if (strlen(next_page_url) > 0) DrawButton(sys_width/2 + 10, footer_y, sys_width/2 - 30, row_h, "MÁS >>", 0);
+        if (current_page > 0 || page_stack_ptr > 0) DrawButton(20, footer_y, sys_width/2 - 30, row_h, T("<< ANTERIOR"), 0);
+        if (end < entry_count) DrawButton(sys_width/2 + 10, footer_y, sys_width/2 - 30, row_h, T("SIGUIENTE >>"), 0);
+        else if (strlen(next_page_url) > 0) DrawButton(sys_width/2 + 10, footer_y, sys_width/2 - 30, row_h, T("MÁS >>"), 0);
     }
 }
 
@@ -1409,7 +1548,7 @@ void HandleHardwareButtons(int key) {
     } else if (key == IV_KEY_MENU) {
         static char page_input_buffer[16] = {0};
         memset(page_input_buffer, 0, sizeof(page_input_buffer));
-        OpenKeyboard("Ir a la página:", page_input_buffer, 15, 0, JumpToPageCallback);
+        OpenKeyboard(T("Ir a la página:"), page_input_buffer, 15, 0, JumpToPageCallback);
     }
 }
 
@@ -1426,7 +1565,7 @@ void HandleBrowsingTouch(int x, int y) {
         if (x >= search_x && x <= search_x + btn_w) {
             FlashArea(search_x, btn_y, btn_w, btn_h);
             memset(search_input_buffer, 0, sizeof(search_input_buffer));
-            OpenKeyboard("Buscar en el catálogo:", search_input_buffer, 255, 0, PerformSearch);
+            OpenKeyboard(T("Buscar en el catálogo:"), search_input_buffer, 255, 0, PerformSearch);
         } else if (x >= home_x && x <= home_x + btn_w) { 
             FlashArea(home_x, btn_y, btn_w, btn_h);
             nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0; current_page = 0; LoadCatalog(servers[current_server_index].url); 
@@ -1435,7 +1574,7 @@ void HandleBrowsingTouch(int x, int y) {
             GoBackInHierarchy(); 
         } else if (x >= exit_x && x <= exit_x + btn_w) { 
             FlashArea(exit_x, btn_y, btn_w, btn_h);
-            Message(ICON_INFORMATION, "Saliendo", "Limpiando...", 0); Repaint(); ManageImageCache(); TriggerLibraryRefresh(); CloseApp(); 
+            Message(ICON_INFORMATION, T("Saliendo"), T("Limpiando..."), 0); Repaint(); ManageImageCache(); TriggerLibraryRefresh(); CloseApp(); 
         } else if (x >= title_x && x <= title_x + title_w) {
             FlashArea(title_x, hh / 6, title_w, 40); 
             nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0; current_state = STATE_SERVER_OPTIONS; Repaint();
@@ -1489,7 +1628,7 @@ void HandleBrowsingTouch(int x, int y) {
                     FillArea(0, 0, sys_width, sys_height, 0xFFFFFF);
                     SetTextFont(36, 0x000000);
                     DrawTextRect(0, sys_height / 2 - 30, sys_width, 60,
-                                 "Consultando ficha de eBiblio...", ALIGN_CENTER);
+                                 T("Consultando ficha de eBiblio..."), ALIGN_CENTER);
                     FullUpdate();
                     if (EnsureNetwork() == 0) {
                         char details_error[MAX_STR_LEN] = {0};
@@ -1499,7 +1638,7 @@ void HandleBrowsingTouch(int x, int y) {
                                 details_error, sizeof(details_error)) != 0) {
                             Message(ICON_WARNING, "eBiblio",
                                     details_error[0] ? details_error :
-                                    "No se pudieron cargar las acciones del préstamo.",
+                                    T("No se pudieron cargar las acciones del préstamo."),
                                     5000);
                         }
                     }
@@ -1605,10 +1744,10 @@ static void BuildBookDetailSummary(const OPDSEntry *entry, char *output,
     char availability_info[MAX_STR_LEN] = {0};
     if (entry->ebiblio_availability_until[0]) {
         const char *label = strcmp(entry->ebiblio_status, "ready") == 0
-            ? "Confirmar antes de"
+            ? T("Confirmar antes de")
             : strcmp(entry->ebiblio_status, "available") == 0
-            ? "Préstamo hasta"
-            : "Disponibilidad estimada";
+            ? T("Préstamo hasta")
+            : T("Disponibilidad estimada");
         snprintf(availability_info, sizeof(availability_info), "%s: %s",
                  label, entry->ebiblio_availability_until);
     }
@@ -1616,13 +1755,13 @@ static void BuildBookDetailSummary(const OPDSEntry *entry, char *output,
     size_t used = strlen(availability_info);
     if (entry->ebiblio_holds_total > 0) {
         snprintf(availability_info + used, sizeof(availability_info) - used,
-                 "%sReservas en cola: %d",
+                 T("%sReservas en cola: %d"),
                  used ? "\n" : "", entry->ebiblio_holds_total);
         used = strlen(availability_info);
     }
     if (entry->ebiblio_hold_position > 0) {
         snprintf(availability_info + used, sizeof(availability_info) - used,
-                 "%sTu posición: %d",
+                 T("%sTu posición: %d"),
                  used ? "\n" : "", entry->ebiblio_hold_position);
     }
 
@@ -1673,7 +1812,7 @@ void DrawBookDetails() {
                        EbiblioActionLabel(e, i), 0);
         } else {
             char b[64];
-            snprintf(b, sizeof(b), "Descargar %s",
+            snprintf(b, sizeof(b), T("Descargar %s"),
                      e->formats[i - action_count].label);
             DrawButton(m, by, sys_width - (m * 2), 90, b, 0);
         }
@@ -1683,12 +1822,12 @@ void DrawBookDetails() {
         int gap = 8;
         int button_w = (sys_width - (m * 2) - (gap * 2)) / 3;
         int footer_y = sys_height - 110;
-        DrawButton(m, footer_y, button_w, 90, "Anterior", 0);
-        DrawButton(m + button_w + gap, footer_y, button_w, 90, "Atrás", 1);
+        DrawButton(m, footer_y, button_w, 90, T("Anterior"), 0);
+        DrawButton(m + button_w + gap, footer_y, button_w, 90, T("Atrás"), 1);
         DrawButton(m + (button_w + gap) * 2, footer_y, button_w, 90,
-                   "Siguiente", 0);
+                   T("Siguiente"), 0);
     } else {
-        DrawButton(m, sys_height - 110, sys_width - (m * 2), 90, "Atrás", 1);
+        DrawButton(m, sys_height - 110, sys_width - (m * 2), 90, T("Atrás"), 1);
     }
     SoftUpdate();
 }
@@ -1783,46 +1922,46 @@ void HandleBookDetailsTouch(int x, int y) {
                 char final_path[MAX_STR_LEN]; snprintf(final_path, sizeof(final_path), "%s%s", BOOKS_DIR, server_fname);
                 if (rename(tmp_path, final_path) != 0) {
                     remove(tmp_path);
-                    Message(ICON_ERROR, "Error", "El libro se descargó, pero no se pudo guardar.", 4000);
+                    Message(ICON_ERROR, "Error", T("El libro se descargó, pero no se pudo guardar."), 4000);
                 } else if (is_lcp_license) {
                     if (EbiblioValidateLicenseFile(final_path, license_error,
                                                    sizeof(license_error)) != 0) {
                         char message[MAX_STR_LEN * 2];
                         snprintf(message, sizeof(message), "%s\n\nGuardado en:\n%s",
-                                 license_error[0] ? license_error : "Licencia LCP no válida.",
+                                 license_error[0] ? license_error : T("Licencia LCP no válida."),
                                  final_path);
-                        Message(ICON_ERROR, "Archivo LCP", message, 7000);
+                        Message(ICON_ERROR, T("Archivo LCP"), message, 7000);
                         Repaint();
                         return;
                     }
                     if (TriggerLibraryScan() < 0) {
-                        Message(ICON_WARNING, "Licencia LCP guardada",
-                                "No se pudo iniciar el escaneo. Busca la licencia en Descargas y solicita actualizar la biblioteca.",
+                        Message(ICON_WARNING, T("Licencia LCP guardada"),
+                                T("No se pudo iniciar el escaneo. Busca la licencia en Descargas y solicita actualizar la biblioteca."),
                                 7000);
                     } else {
                         char message[MAX_STR_LEN * 2];
                         snprintf(message, sizeof(message),
-                                 "Se solicitó escanear la licencia:\n%s\nCuando aparezca en la biblioteca, pulsa su icono para que el lector la procese.",
+                                 T("Se solicitó escanear la licencia:\n%s\nCuando aparezca en la biblioteca, pulsa su icono para que el lector la procese."),
                                  final_path);
-                        Message(ICON_INFORMATION, "Licencia LCP guardada", message, 7000);
+                        Message(ICON_INFORMATION, T("Licencia LCP guardada"), message, 7000);
                     }
                     Repaint();
                     return;
                 } else if (unknown_format) {
-                    Message(ICON_WARNING, "Descarga guardada",
-                            "eBiblio no indicó el formato del archivo. Se guardó, pero no se solicitó su indexación.",
+                    Message(ICON_WARNING, T("Descarga guardada"),
+                            T("eBiblio no indicó el formato del archivo. Se guardó, pero no se solicitó su indexación."),
                             6000);
                 } else if (TriggerLibraryScan() < 0) {
-                    Message(ICON_WARNING, "Descarga completada",
-                            "El libro se guardó, pero no se pudo iniciar el escaneo de la biblioteca.", 5000);
+                    Message(ICON_WARNING, T("Descarga completada"),
+                            T("El libro se guardó, pero no se pudo iniciar el escaneo de la biblioteca."), 5000);
                 } else {
-                    Message(ICON_INFORMATION, "Descarga completada",
-                            "Se solicitó actualizar la biblioteca; puede tardar unos segundos.", 3000);
+                    Message(ICON_INFORMATION, T("Descarga completada"),
+                            T("Se solicitó actualizar la biblioteca; puede tardar unos segundos."), 3000);
                 }
             } else {
                 remove(tmp_path);
                 Message(ICON_ERROR, "Error",
-                        download_error[0] ? download_error : "Error al descargar.", 5000);
+                        download_error[0] ? download_error : T("Error al descargar."), 5000);
             }
             Repaint(); return;
         }
@@ -1892,12 +2031,12 @@ static const char *EbiblioActionURL(const OPDSEntry *entry, int index) {
 }
 
 static const char *EbiblioActionLabel(const OPDSEntry *entry, int index) {
-    if (!entry) return "Acción";
+    if (!entry) return T("Acción");
     const char *labels[] = {
-        "Aceptar préstamo",
-        strcmp(entry->ebiblio_status, "unavailable") == 0 ? "Reservar" : "Pedir préstamo",
-        "Cancelar reserva",
-        "Devolver préstamo"
+        T("Aceptar préstamo"),
+        strcmp(entry->ebiblio_status, "unavailable") == 0 ? T("Reservar") : T("Pedir préstamo"),
+        T("Cancelar reserva"),
+        T("Devolver préstamo")
     };
     const char *actions[] = {
         entry->ebiblio_accept_url,
@@ -1909,7 +2048,7 @@ static const char *EbiblioActionLabel(const OPDSEntry *entry, int index) {
         if (!actions[i][0]) continue;
         if (index-- == 0) return labels[i];
     }
-    return "Acción";
+    return T("Acción");
 }
 
 static void ConfirmEbiblioAction(int button) {
@@ -1941,7 +2080,7 @@ static void ConfirmEbiblioAction(int button) {
     pending_ebiblio_action_uses_put = 0;
     if (result != 0) {
         Message(ICON_ERROR, "eBiblio",
-                error[0] ? error : "No se pudo completar la operación.", 5000);
+                error[0] ? error : T("No se pudo completar la operación."), 5000);
         Repaint();
         return;
     }
@@ -1951,7 +2090,7 @@ static void ConfirmEbiblioAction(int button) {
 static void RequestEbiblioAction(const char *url, const char *label,
                                  int use_delete, int use_put) {
     if (!url || !url[0] || strlen(url) >= sizeof(pending_ebiblio_action)) {
-        Message(ICON_ERROR, "eBiblio", "El enlace de la operación no es válido.", 4000);
+        Message(ICON_ERROR, "eBiblio", T("El enlace de la operación no es válido."), 4000);
         Repaint();
         return;
     }
@@ -1960,7 +2099,7 @@ static void RequestEbiblioAction(const char *url, const char *label,
     pending_ebiblio_action_uses_delete = use_delete;
     pending_ebiblio_action_uses_put = use_put;
     char text[256];
-    snprintf(text, sizeof(text), "¿Confirmas esta operación?\n\n%s", label ? label : "Acción");
-    Dialog(ICON_QUESTION, "Confirmar en eBiblio", text,
-           "Confirmar", "Cancelar", ConfirmEbiblioAction);
+    snprintf(text, sizeof(text), T("¿Confirmas esta operación?\n\n%s"), label ? label : T("Acción"));
+    Dialog(ICON_QUESTION, T("Confirmar en eBiblio"), text,
+           T("Confirmar"), T("Cancelar"), ConfirmEbiblioAction);
 }

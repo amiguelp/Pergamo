@@ -56,42 +56,44 @@ static void SetNetworkError(CURLcode result, long http_status,
 
     if (http_status >= 400) {
         if (http_status == 401) {
-            snprintf(error, error_size, "eBiblio no ha aceptado la sesión.");
+            snprintf(error, error_size, T("eBiblio no ha aceptado la sesión."));
         } else if (http_status == 403) {
-            snprintf(error, error_size, "eBiblio ha denegado la operación.");
+            snprintf(error, error_size, T("eBiblio ha denegado la operación."));
         } else if (http_status == 404) {
             snprintf(error, error_size,
-                     "eBiblio no encuentra el recurso solicitado (HTTP 404). "
+                     "%s",
+                     T("eBiblio no encuentra el recurso solicitado (HTTP 404). "
                      "Actualiza Préstamos y reservas para obtener los enlaces vigentes; "
-                     "si tu reserva está disponible, utiliza Aceptar préstamo desde su ficha.");
+                     "si tu reserva está disponible, utiliza Aceptar préstamo desde su ficha."));
         } else if (http_status == 409) {
             snprintf(error, error_size,
-                     "eBiblio no permite la operación en el estado actual (HTTP 409). "
+                     "%s",
+                     T("eBiblio no permite la operación en el estado actual (HTTP 409). "
                      "Puede que la ficha haya cambiado o no queden plazas de reserva; "
-                     "actualiza Préstamos y reservas y vuelve a intentarlo.");
+                     "actualiza Préstamos y reservas y vuelve a intentarlo."));
         } else if (http_status >= 500) {
-            snprintf(error, error_size, "eBiblio tiene un error temporal (HTTP %ld).", http_status);
+            snprintf(error, error_size, T("eBiblio tiene un error temporal (HTTP %ld)."), http_status);
         } else {
-            snprintf(error, error_size, "eBiblio respondió con HTTP %ld.", http_status);
+            snprintf(error, error_size, T("eBiblio respondió con HTTP %ld."), http_status);
         }
         return;
     }
 
     switch (result) {
         case CURLE_COULDNT_RESOLVE_HOST:
-            snprintf(error, error_size, "No se pudo encontrar madrid.ebiblio.es (error DNS).");
+            snprintf(error, error_size, T("No se pudo encontrar madrid.ebiblio.es (error DNS)."));
             break;
         case CURLE_COULDNT_CONNECT:
-            snprintf(error, error_size, "No se pudo conectar con eBiblio Madrid.");
+            snprintf(error, error_size, T("No se pudo conectar con eBiblio Madrid."));
             break;
         case CURLE_OPERATION_TIMEDOUT:
-            snprintf(error, error_size, "La conexión con eBiblio agotó el tiempo de espera.");
+            snprintf(error, error_size, T("La conexión con eBiblio agotó el tiempo de espera."));
             break;
         case CURLE_SSL_CONNECT_ERROR:
-            snprintf(error, error_size, "No se pudo establecer una conexión HTTPS segura con eBiblio.");
+            snprintf(error, error_size, T("No se pudo establecer una conexión HTTPS segura con eBiblio."));
             break;
         default:
-            snprintf(error, error_size, "Error de red: %s", curl_easy_strerror(result));
+            snprintf(error, error_size, T("Error de red: %s"), curl_easy_strerror(result));
             break;
     }
 }
@@ -101,7 +103,7 @@ static int RequestRaw(const char *url, const char *method, const char *body,
                       long *http_status, char *error, size_t error_size) {
     CURL *curl = curl_easy_init();
     if (!curl) {
-        if (error && error_size) snprintf(error, error_size, "No se pudo iniciar la conexión HTTP.");
+        if (error && error_size) snprintf(error, error_size, T("No se pudo iniciar la conexión HTTP."));
         return -1;
     }
 
@@ -109,7 +111,7 @@ static int RequestRaw(const char *url, const char *method, const char *body,
     response->size = 0;
     if (!response->memory) {
         curl_easy_cleanup(curl);
-        if (error && error_size) snprintf(error, error_size, "No hay memoria suficiente para consultar eBiblio.");
+        if (error && error_size) snprintf(error, error_size, T("No hay memoria suficiente para consultar eBiblio."));
         return -1;
     }
     response->memory[0] = '\0';
@@ -212,7 +214,7 @@ static int DiscoverAuthenticationURL(char *error, size_t error_size) {
     struct json_object *root = json_tokener_parse(response.memory);
     free(response.memory);
     if (!root) {
-        if (error && error_size) snprintf(error, error_size, "eBiblio devolvió un documento de acceso no válido.");
+        if (error && error_size) snprintf(error, error_size, T("eBiblio devolvió un documento de acceso no válido."));
         return -1;
     }
 
@@ -256,7 +258,7 @@ static int DiscoverAuthenticationURL(char *error, size_t error_size) {
     json_object_put(root);
 
     if (!found && error && error_size) {
-        snprintf(error, error_size, "eBiblio no ofrece el acceso OAuth esperado.");
+        snprintf(error, error_size, T("eBiblio no ofrece el acceso OAuth esperado."));
     }
     return found ? 0 : -1;
 }
@@ -264,7 +266,7 @@ static int DiscoverAuthenticationURL(char *error, size_t error_size) {
 static int Authenticate(const char *user, const char *pass,
                         char *error, size_t error_size) {
     if (!user || !user[0] || !pass || !pass[0]) {
-        if (error && error_size) snprintf(error, error_size, "Configura el carné y la contraseña de eBiblio en los datos del servidor.");
+        if (error && error_size) snprintf(error, error_size, T("Configura el carné y la contraseña de eBiblio en los datos del servidor."));
         return -1;
     }
 
@@ -276,7 +278,7 @@ static int Authenticate(const char *user, const char *pass,
     char encoded_pass[MAX_STR_LEN * 3];
     if (UrlEncodeFormValue(user, encoded_user, sizeof(encoded_user)) != 0 ||
         UrlEncodeFormValue(pass, encoded_pass, sizeof(encoded_pass)) != 0) {
-        if (error && error_size) snprintf(error, error_size, "El usuario o la contraseña de eBiblio son demasiado largos.");
+        if (error && error_size) snprintf(error, error_size, T("El usuario o la contraseña de eBiblio son demasiado largos."));
         return -1;
     }
 
@@ -289,7 +291,7 @@ static int Authenticate(const char *user, const char *pass,
     if (RequestRaw(ebiblio_auth_url, "POST", body, NULL,
                    &response, &status, error, error_size) != 0) {
         if (status == 400 || status == 401) {
-            if (error && error_size) snprintf(error, error_size, "eBiblio rechazó las credenciales. Comprueba el número de carné y la contraseña.");
+            if (error && error_size) snprintf(error, error_size, T("eBiblio rechazó las credenciales. Comprueba el número de carné y la contraseña."));
         }
         return -1;
     }
@@ -300,14 +302,14 @@ static int Authenticate(const char *user, const char *pass,
     if (!root || !json_object_object_get_ex(root, "access_token", &token) ||
         !json_object_is_type(token, json_type_string)) {
         if (root) json_object_put(root);
-        if (error && error_size) snprintf(error, error_size, "eBiblio no devolvió un token de acceso válido.");
+        if (error && error_size) snprintf(error, error_size, T("eBiblio no devolvió un token de acceso válido."));
         return -1;
     }
 
     const char *token_value = json_object_get_string(token);
     if (strlen(token_value) >= sizeof(ebiblio_access_token)) {
         json_object_put(root);
-        if (error && error_size) snprintf(error, error_size, "El token de eBiblio supera el tamaño admitido.");
+        if (error && error_size) snprintf(error, error_size, T("El token de eBiblio supera el tamaño admitido."));
         return -1;
     }
     strcpy(ebiblio_access_token, token_value);
@@ -348,7 +350,7 @@ static int RequestAuthorized(const char *url, const char *method, const char *bo
                              struct MemoryStruct *response, char *error,
                              size_t error_size) {
     if (!IsTrustedEbiblioURL(url)) {
-        if (error && error_size) snprintf(error, error_size, "Se rechazó una dirección ajena a eBiblio Madrid.");
+        if (error && error_size) snprintf(error, error_size, T("Se rechazó una dirección ajena a eBiblio Madrid."));
         return -1;
     }
     if (EnsureToken(user, pass, error, error_size) != 0) return -1;
@@ -369,7 +371,7 @@ int EbiblioFetchFeed(const char *url, const char *user, const char *pass,
                      char *error, size_t error_size) {
     if (error && error_size) error[0] = '\0';
     if (!IsTrustedEbiblioURL(url)) {
-        if (error && error_size) snprintf(error, error_size, "La dirección no pertenece a eBiblio Madrid.");
+        if (error && error_size) snprintf(error, error_size, T("La dirección no pertenece a eBiblio Madrid."));
         return -1;
     }
 
@@ -479,7 +481,7 @@ int EbiblioDownloadWithInfo(const char *url, const char *filepath,
     if (content_type && content_type_size) content_type[0] = '\0';
     if (!url || !filepath || strncmp(url, "https://", 8) != 0 ||
         strlen(url) >= sizeof(current_url)) {
-        if (error && error_size) snprintf(error, error_size, "La dirección de descarga no es válida o no usa HTTPS.");
+        if (error && error_size) snprintf(error, error_size, T("La dirección de descarga no es válida o no usa HTTPS."));
         return -1;
     }
     strcpy(current_url, url);
@@ -490,7 +492,7 @@ int EbiblioDownloadWithInfo(const char *url, const char *filepath,
 
         FILE *file = fopen(filepath, "wb");
         if (!file) {
-            if (error && error_size) snprintf(error, error_size, "No se pudo crear el archivo de descarga.");
+            if (error && error_size) snprintf(error, error_size, T("No se pudo crear el archivo de descarga."));
             return -1;
         }
 
@@ -498,7 +500,7 @@ int EbiblioDownloadWithInfo(const char *url, const char *filepath,
         if (!curl) {
             fclose(file);
             remove(filepath);
-            if (error && error_size) snprintf(error, error_size, "No se pudo iniciar la descarga.");
+            if (error && error_size) snprintf(error, error_size, T("No se pudo iniciar la descarga."));
             return -1;
         }
 
@@ -568,13 +570,13 @@ int EbiblioDownloadWithInfo(const char *url, const char *filepath,
             xmlChar *resolved = xmlBuildURI((const xmlChar *)response_headers.location,
                                             (const xmlChar *)current_url);
             if (!resolved) {
-                if (error && error_size) snprintf(error, error_size, "eBiblio devolvió una redirección no válida.");
+                if (error && error_size) snprintf(error, error_size, T("eBiblio devolvió una redirección no válida."));
                 return -1;
             }
             if (strlen((const char *)resolved) >= sizeof(current_url) ||
                 strncmp((const char *)resolved, "https://", 8) != 0) {
                 xmlFree(resolved);
-                if (error && error_size) snprintf(error, error_size, "La redirección de descarga no es segura.");
+                if (error && error_size) snprintf(error, error_size, T("La redirección de descarga no es segura."));
                 return -1;
             }
             strncpy(current_url, (const char *)resolved, sizeof(current_url) - 1);
@@ -589,7 +591,7 @@ int EbiblioDownloadWithInfo(const char *url, const char *filepath,
     }
 
     remove(filepath);
-    if (error && error_size) snprintf(error, error_size, "La descarga superó el límite de redirecciones.");
+    if (error && error_size) snprintf(error, error_size, T("La descarga superó el límite de redirecciones."));
     return -1;
 }
 
@@ -603,38 +605,38 @@ int EbiblioDownload(const char *url, const char *filepath,
 int EbiblioValidateLicenseFile(const char *filepath, char *error, size_t error_size) {
     if (error && error_size) error[0] = '\0';
     if (!filepath) {
-        if (error && error_size) snprintf(error, error_size, "No se indicó el archivo de licencia.");
+        if (error && error_size) snprintf(error, error_size, T("No se indicó el archivo de licencia."));
         return -1;
     }
 
     FILE *file = fopen(filepath, "rb");
     if (!file) {
-        if (error && error_size) snprintf(error, error_size, "No se pudo leer el archivo de licencia.");
+        if (error && error_size) snprintf(error, error_size, T("No se pudo leer el archivo de licencia."));
         return -1;
     }
     if (fseek(file, 0, SEEK_END) != 0) {
         fclose(file);
-        if (error && error_size) snprintf(error, error_size, "No se pudo comprobar el archivo de licencia.");
+        if (error && error_size) snprintf(error, error_size, T("No se pudo comprobar el archivo de licencia."));
         return -1;
     }
     long file_size = ftell(file);
     if (file_size <= 0 || file_size > 1024 * 1024 || fseek(file, 0, SEEK_SET) != 0) {
         fclose(file);
-        if (error && error_size) snprintf(error, error_size, "El archivo LCP está vacío o tiene un tamaño no válido.");
+        if (error && error_size) snprintf(error, error_size, T("El archivo LCP está vacío o tiene un tamaño no válido."));
         return -1;
     }
 
     char *contents = malloc((size_t)file_size + 1);
     if (!contents) {
         fclose(file);
-        if (error && error_size) snprintf(error, error_size, "No hay memoria suficiente para validar la licencia LCP.");
+        if (error && error_size) snprintf(error, error_size, T("No hay memoria suficiente para validar la licencia LCP."));
         return -1;
     }
     size_t read_size = fread(contents, 1, (size_t)file_size, file);
     fclose(file);
     if (read_size != (size_t)file_size) {
         free(contents);
-        if (error && error_size) snprintf(error, error_size, "No se pudo leer el archivo de licencia completo.");
+        if (error && error_size) snprintf(error, error_size, T("No se pudo leer el archivo de licencia completo."));
         return -1;
     }
     contents[file_size] = '\0';
@@ -643,7 +645,7 @@ int EbiblioValidateLicenseFile(const char *filepath, char *error, size_t error_s
     free(contents);
     if (!root || !json_object_is_type(root, json_type_object)) {
         if (root) json_object_put(root);
-        if (error && error_size) snprintf(error, error_size, "eBiblio no devolvió una licencia LCP JSON válida.");
+        if (error && error_size) snprintf(error, error_size, T("eBiblio no devolvió una licencia LCP JSON válida."));
         return -1;
     }
 
@@ -676,7 +678,7 @@ int EbiblioValidateLicenseFile(const char *filepath, char *error, size_t error_s
     if (!has_core_fields || !has_publication) {
         if (error && error_size) {
             snprintf(error, error_size,
-                     "El archivo descargado no contiene una licencia LCP completa con enlace al EPUB.");
+                     T("El archivo descargado no contiene una licencia LCP completa con enlace al EPUB."));
         }
         return -1;
     }
@@ -1001,8 +1003,8 @@ static int AddPublicationEntries(struct json_object *array, const char *base_url
         CopyPublicationLinks(publication, base_url, entry);
         if (entry->ebiblio_status[0]) {
             const char *status = strcmp(entry->ebiblio_status, "available") == 0
-                ? "Disponible" : strcmp(entry->ebiblio_status, "unavailable") == 0
-                ? "No disponible" : entry->ebiblio_status;
+                ? T("Disponible") : strcmp(entry->ebiblio_status, "unavailable") == 0
+                ? T("No disponible") : entry->ebiblio_status;
             size_t used = strlen(entry->author);
             if (used < sizeof(entry->author) - 1) {
                 snprintf(entry->author + used, sizeof(entry->author) - used,
@@ -1102,7 +1104,7 @@ int EbiblioLoadPublicationDetails(OPDSEntry *entry, const char *user, const char
     if (error && error_size) error[0] = '\0';
     if (!entry || !entry->ebiblio_self_url[0]) {
         if (error && error_size) {
-            snprintf(error, error_size, "La ficha de eBiblio no incluye un enlace de detalle.");
+            snprintf(error, error_size, T("La ficha de eBiblio no incluye un enlace de detalle."));
         }
         return -1;
     }
@@ -1118,7 +1120,7 @@ int EbiblioLoadPublicationDetails(OPDSEntry *entry, const char *user, const char
     if (!root || !json_object_is_type(root, json_type_object)) {
         if (root) json_object_put(root);
         if (error && error_size) {
-            snprintf(error, error_size, "eBiblio devolvió una ficha de préstamo no válida.");
+            snprintf(error, error_size, T("eBiblio devolvió una ficha de préstamo no válida."));
         }
         return -1;
     }
@@ -1147,7 +1149,7 @@ int EbiblioLoadPublicationDetails(OPDSEntry *entry, const char *user, const char
     if (!metadata || !json_object_is_type(metadata, json_type_object)) {
         json_object_put(root);
         if (error && error_size) {
-            snprintf(error, error_size, "La ficha de eBiblio no contiene metadatos de publicación.");
+            snprintf(error, error_size, T("La ficha de eBiblio no contiene metadatos de publicación."));
         }
         return -1;
     }

@@ -27,6 +27,8 @@
 #define FOLDER_ICON IMAGES_DIR "folder.png"
 #define BOOK_ICON IMAGES_DIR "book.png"
 
+#define PERGAMO_VERSION "1.1"
+#define DEBUG_LOG_TRIGGER APP_ROOT_DIR "LOGTRIGGER.TXT"
 #define APP_USER_AGENT "PocketBook-OPDS-Expert/1.0 (PocketBook Era; Linux)"
 
 typedef enum AppState {
@@ -35,7 +37,8 @@ typedef enum AppState {
     STATE_SERVER_FORM,
     STATE_BROWSING,
     STATE_BOOK_DETAILS,
-    STATE_UNINSTALL_CONFIRM
+    STATE_UNINSTALL_CONFIRM,
+    STATE_SETTINGS
 } AppState;
 
 typedef struct {
@@ -138,6 +141,8 @@ void DrawBrowsingView();
 void HandleBrowsingTouch(int x, int y);
 void DrawBookDetails();
 void HandleBookDetailsTouch(int x, int y);
+void DrawSettings();
+void HandleSettingsTouch(int x, int y);
 void DrawUninstallConfirmation();
 void HandleUninstallConfirmationTouch(int x, int y);
 void AskRestartAfterUninstall(int cleanup_complete);
@@ -146,5 +151,7 @@ void LoadCatalog(const char *url);
 void Repaint();
 void SaveServers();
 void LoadServers();
+
+#include "i18n.h"
 
 #endif

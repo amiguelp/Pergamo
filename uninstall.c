@@ -58,6 +58,10 @@ static int RemoveOwnedCacheFiles(void) {
     return result;
 }
 
+int ClearPergamoCoverCache(void) {
+    return RemoveOwnedCacheFiles();
+}
+
 static int RemoveEmptyDirectory(const char *path) {
     if (rmdir(path) == 0 || errno == ENOENT || errno == ENOTEMPTY || errno == EEXIST) {
         return 0;

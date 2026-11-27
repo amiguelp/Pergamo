@@ -172,8 +172,8 @@ static void ConfigureLauncherIcon(void) {
     startup_setup_complete = 1;
     int icon_setup = InstallLauncherIcon();
     if (icon_setup < 0) {
-        Message(ICON_ERROR, "Icono del launcher",
-                "No se pudo configurar el icono personalizado.", 4000);
+        Message(ICON_ERROR, T("Icono del launcher"),
+                T("No se pudo configurar el icono personalizado."), 4000);
     } else if (icon_setup > 0) {
         if (SetRestartPromptPending(1) != 0) {
             LogDebug("Launcher icon changed, but restart prompt state could not be saved.");
@@ -182,17 +182,17 @@ static void ConfigureLauncherIcon(void) {
 
     if (icon_setup > 0 || IsRestartPromptPending()) {
         startup_restart_dialog_active = 1;
-        Dialog(ICON_QUESTION, "Actualizar el icono",
-               "El launcher puede conservar el menú anterior en caché. Reinicia el lector para que cargue el nuevo icono. ¿Reiniciar ahora?",
-               "Reiniciar", "Después", RestartAfterFirstIconSetup);
+        Dialog(ICON_QUESTION, T("Actualizar el icono"),
+               T("El launcher puede conservar el menú anterior en caché. Reinicia el lector para que cargue el nuevo icono. ¿Reiniciar ahora?"),
+               T("Reiniciar"), T("Después"), RestartAfterFirstIconSetup);
     }
 }
 
 void AskRestartAfterUninstall(int cleanup_complete) {
     const char *reason = cleanup_complete
-        ? "El launcher debe recargar el menú para quitar el acceso de Pergamo. ¿Reiniciar ahora?"
-        : "Se quitó el acceso, pero quedaron archivos. Reiniciar actualiza el menú. ¿Reiniciar ahora?";
-    Dialog(ICON_QUESTION, "Reiniciar el lector", reason, "Reiniciar", "Después",
+        ? T("El launcher debe recargar el menú para quitar el acceso de Pergamo. ¿Reiniciar ahora?")
+        : T("Se quitó el acceso, pero quedaron archivos. Reiniciar actualiza el menú. ¿Reiniciar ahora?");
+    Dialog(ICON_QUESTION, T("Reiniciar el lector"), reason, T("Reiniciar"), T("Después"),
            RestartAfterUninstall);
 }
 
@@ -205,6 +205,7 @@ void Repaint() {
         case STATE_BROWSING:       DrawBrowsingView(); break;
         case STATE_BOOK_DETAILS:   DrawBookDetails(); break;
         case STATE_UNINSTALL_CONFIRM: DrawUninstallConfirmation(); break;
+        case STATE_SETTINGS:       DrawSettings(); break;
     }
     FullUpdate();
 }
@@ -370,6 +371,7 @@ static int main_handler(int event, int a, int b) {
                 return 0;
             }
             LogDebug("--- App Started ---");
+            LoadLanguageSetting();
 
             LoadServers();
 
@@ -419,7 +421,8 @@ static int main_handler(int event, int a, int b) {
             if (a == IV_KEY_BACK) { 
                 if (current_state == STATE_MAIN_MENU) CloseApp();
                 else {
-                    current_state = STATE_MAIN_MENU;
+                    current_state = current_state == STATE_UNINSTALL_CONFIRM
+                        ? STATE_SETTINGS : STATE_MAIN_MENU;
                     Repaint();
                 }
             } else {
@@ -435,6 +438,7 @@ static int main_handler(int event, int a, int b) {
                 case STATE_BROWSING:       HandleBrowsingTouch(a, b); break;
                 case STATE_BOOK_DETAILS:   HandleBookDetailsTouch(a, b); break;
                 case STATE_UNINSTALL_CONFIRM: HandleUninstallConfirmationTouch(a, b); break;
+                case STATE_SETTINGS:       HandleSettingsTouch(a, b); break;
             }
             break;
 

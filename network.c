@@ -61,50 +61,50 @@ static void SetFeedError(CURLcode result, long http_status, char *error, size_t 
 
     if (http_status >= 400) {
         if (http_status == 401) {
-            snprintf(error, error_size, "HTTP %ld: usuario o contraseña incorrectos.", http_status);
+            snprintf(error, error_size, T("HTTP %ld: usuario o contraseña incorrectos."), http_status);
         } else if (http_status == 403) {
-            snprintf(error, error_size, "HTTP %ld: el servidor ha denegado el acceso.", http_status);
+            snprintf(error, error_size, T("HTTP %ld: el servidor ha denegado el acceso."), http_status);
         } else if (http_status == 404) {
-            snprintf(error, error_size, "HTTP %ld: no se encuentra la dirección del catálogo.", http_status);
+            snprintf(error, error_size, T("HTTP %ld: no se encuentra la dirección del catálogo."), http_status);
         } else if (http_status == 429) {
-            snprintf(error, error_size, "HTTP %ld: demasiadas solicitudes; inténtalo más tarde.", http_status);
+            snprintf(error, error_size, T("HTTP %ld: demasiadas solicitudes; inténtalo más tarde."), http_status);
         } else if (http_status >= 500) {
-            snprintf(error, error_size, "HTTP %ld: error interno del servidor.", http_status);
+            snprintf(error, error_size, T("HTTP %ld: error interno del servidor."), http_status);
         } else {
-            snprintf(error, error_size, "El servidor respondió con el error HTTP %ld.", http_status);
+            snprintf(error, error_size, T("El servidor respondió con el error HTTP %ld."), http_status);
         }
         return;
     }
 
     switch (result) {
         case CURLE_COULDNT_RESOLVE_HOST:
-            snprintf(error, error_size, "No se pudo encontrar el servidor (error DNS).");
+            snprintf(error, error_size, T("No se pudo encontrar el servidor (error DNS)."));
             break;
         case CURLE_COULDNT_CONNECT:
-            snprintf(error, error_size, "No se pudo establecer conexión con el servidor.");
+            snprintf(error, error_size, T("No se pudo establecer conexión con el servidor."));
             break;
         case CURLE_OPERATION_TIMEDOUT:
-            snprintf(error, error_size, "La conexión agotó el tiempo de espera.");
+            snprintf(error, error_size, T("La conexión agotó el tiempo de espera."));
             break;
         case CURLE_SSL_CONNECT_ERROR:
-            snprintf(error, error_size, "No se pudo establecer la conexión segura HTTPS.");
+            snprintf(error, error_size, T("No se pudo establecer la conexión segura HTTPS."));
             break;
         case CURLE_URL_MALFORMAT:
-            snprintf(error, error_size, "La dirección del catálogo no es válida.");
+            snprintf(error, error_size, T("La dirección del catálogo no es válida."));
             break;
         case CURLE_UNSUPPORTED_PROTOCOL:
-            snprintf(error, error_size, "El protocolo de la dirección no es compatible.");
+            snprintf(error, error_size, T("El protocolo de la dirección no es compatible."));
             break;
         case CURLE_WRITE_ERROR:
-            snprintf(error, error_size, "No se pudieron guardar los datos recibidos en memoria.");
+            snprintf(error, error_size, T("No se pudieron guardar los datos recibidos en memoria."));
             break;
         case CURLE_RECV_ERROR:
         case CURLE_SEND_ERROR:
         case CURLE_GOT_NOTHING:
-            snprintf(error, error_size, "La conexión se interrumpió antes de recibir el catálogo.");
+            snprintf(error, error_size, T("La conexión se interrumpió antes de recibir el catálogo."));
             break;
         default:
-            snprintf(error, error_size, "Error de red: %s", curl_easy_strerror(result));
+            snprintf(error, error_size, T("Error de red: %s"), curl_easy_strerror(result));
             break;
     }
 }
@@ -192,7 +192,7 @@ int FetchFeed(const char *url, const char *user, const char *pass,
     chunk->memory = malloc(1);
     if (!chunk->memory) {
         if (error && error_size > 0) {
-            snprintf(error, error_size, "No hay memoria suficiente para leer el catálogo.");
+            snprintf(error, error_size, T("No hay memoria suficiente para leer el catálogo."));
         }
         return -1;
     }
@@ -202,7 +202,7 @@ int FetchFeed(const char *url, const char *user, const char *pass,
         free(chunk->memory);
         chunk->memory = NULL;
         if (error && error_size > 0) {
-            snprintf(error, error_size, "No se pudo iniciar la conexión HTTP.");
+            snprintf(error, error_size, T("No se pudo iniciar la conexión HTTP."));
         }
         return -1;
     }
