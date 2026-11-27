@@ -27,7 +27,7 @@
 #define FOLDER_ICON IMAGES_DIR "folder.png"
 #define BOOK_ICON IMAGES_DIR "book.png"
 
-#define PERGAMO_VERSION "1.2"
+#define PERGAMO_VERSION "1.3"
 #define DEBUG_LOG_TRIGGER APP_ROOT_DIR "LOGTRIGGER.TXT"
 #define APP_USER_AGENT "PocketBook-OPDS-Expert/1.0 (PocketBook Era; Linux)"
 
