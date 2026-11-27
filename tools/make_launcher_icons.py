@@ -2,7 +2,9 @@
 """Genera los iconos del launcher de PocketBook (Pergamo.bmp y Pergamo_f.bmp).
 
 Dibuja el icono como line-art vectorial al estilo de los iconos del sistema
-(tema "Line": 122 x 122 px, trazo de unos 3,5 px, bordes suavizados) y lo
+(en el Verse Pro: 106 x 106 px con un dibujo de ~66 px y trazo de ~3 px,
+medido sobre fotos del launcher; la wiki de MobileRead indica 122 x 122
+para otros modelos) y lo
 guarda como BMP de 24 bits, el formato que ya acepta el launcher.
 
 Uso:  python3 tools/make_launcher_icons.py [carpeta_salida]
@@ -14,10 +16,12 @@ import sys
 
 from PIL import Image, ImageDraw
 
-SIZE = 122          # tamaño de los iconos de aplicación del sistema
+SIZE = 106          # tamaño de los iconos de aplicación del sistema (Verse Pro)
 SS = 8              # supermuestreo para suavizar bordes
 STROKE = 3.2        # grosor de línea en píxeles finales
-GLYPH = 86          # lado aproximado del dibujo (margen como los del sistema)
+GLYPH = 66          # lado del dibujo (margen como los del sistema)
+DESIGN = 86         # el dibujo está diseñado en una cuadrícula de 86 unidades
+K = GLYPH / DESIGN
 
 
 def S(v):
@@ -34,26 +38,26 @@ def draw_glyph(fg, bg):
     """Dibuja el glifo en un lienzo SIZE*SS con color de línea fg y fondo bg."""
     img = Image.new("L", (S(SIZE), S(SIZE)), bg)
     d = ImageDraw.Draw(img)
-    ox = (SIZE - GLYPH) / 2          # 19
-    oy = (SIZE - GLYPH) / 2 + 2      # ligeramente bajado, como el resto
+    ox = (SIZE - GLYPH) / 2
+    oy = (SIZE - GLYPH) / 2
 
-    def X(v): return ox + v
-    def Y(v): return oy + v
+    # Coordenadas del diseño (0..86) -> píxeles. El grosor de línea NO se
+    # escala: se mantiene en ~3 px como en los iconos del sistema.
+    def X(v): return ox + v * K
+    def Y(v): return oy + v * K
 
     # Pantalla / estantería
-    rounded_outline(d, (X(0), Y(2), X(72), Y(60)), 7, STROKE, fg)
+    rounded_outline(d, (X(0), Y(2), X(72), Y(60)), 7 * K, STROKE, fg)
     # Balda
     d.line([S(X(5)), S(Y(49)), S(X(67)), S(Y(49))], fill=fg, width=S(STROKE))
-    # Libros de pie (con una raya en el lomo)
+    # Libros de pie
     for bx, top in ((9, 15), (23, 11), (37, 17)):
-        rounded_outline(d, (X(bx), Y(top), X(bx + 12), Y(49)), 2.5, STROKE * 0.9, fg)
-        d.line([S(X(bx + 2)), S(Y(top + 8)), S(X(bx + 10)), S(Y(top + 8))], fill=fg, width=S(STROKE * 0.7))
+        rounded_outline(d, (X(bx), Y(top), X(bx + 12), Y(49)), 2.5 * K, STROKE * 0.8, fg)
     # Libro inclinado
-    book = Image.new("L", (S(13), S(31)), 0)
+    book = Image.new("L", (S(13 * K), S(31 * K)), 0)
     bd = ImageDraw.Draw(book)
-    bd.rounded_rectangle([S(0.6), S(0.6), S(12.4), S(30.4)], radius=S(2.5),
-                         outline=255, width=S(STROKE * 0.9))
-    bd.line([S(2), S(8), S(11), S(8)], fill=255, width=S(STROKE * 0.7))
+    bd.rounded_rectangle([S(0.6), S(0.6), S(13 * K - 0.6), S(31 * K - 0.6)], radius=S(2.5 * K),
+                         outline=255, width=S(STROKE * 0.8))
     book = book.rotate(-20, resample=Image.BICUBIC, expand=True)
     ink = Image.new("L", book.size, fg)
     img.paste(ink, (S(X(50)), S(Y(16))), book)
@@ -66,17 +70,17 @@ def draw_glyph(fg, bg):
 
     def cloud(draw, grow, color):
         for cx, cy, r in cloud_parts:
-            rr = r + grow
-            draw.ellipse([S(X(cx - rr)), S(Y(cy - rr)), S(X(cx + rr)), S(Y(cy + rr))], fill=color)
+            rr = r * K + grow
+            draw.ellipse([S(X(cx) - rr), S(Y(cy) - rr), S(X(cx) + rr), S(Y(cy) + rr)], fill=color)
         x0, y0, x1, y1 = base
-        draw.rounded_rectangle([S(X(x0 - grow)), S(Y(y0 - grow)), S(X(x1 + grow)), S(Y(y1 + grow))],
-                               radius=S(8 + grow), fill=color)
+        draw.rounded_rectangle([S(X(x0) - grow), S(Y(y0) - grow), S(X(x1) + grow), S(Y(y1) + grow)],
+                               radius=S(8 * K + grow), fill=color)
 
     cloud(d, STROKE / 2, fg)     # borde exterior
     cloud(d, -STROKE / 2, bg)    # relleno (deja el contorno)
 
     # Libro abierto dentro de la nube
-    w = STROKE * 0.85
+    w = STROKE * 0.75
     cx, top, bottom = 61, 64, 79
     d.line([S(X(cx)), S(Y(top + 2)), S(X(cx)), S(Y(bottom))], fill=fg, width=S(w))
     d.line([S(X(cx)), S(Y(top + 2)), S(X(cx - 11)), S(Y(top))], fill=fg, width=S(w), joint="curve")
