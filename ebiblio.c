@@ -9,6 +9,8 @@
 #include <strings.h>
 #include <time.h>
 
+extern void LogDebug(const char *msg);
+
 #define EBIBLIO_AUTH_DOCUMENT_URL "https://madrid.ebiblio.es/v1/sign_in.opds2"
 #define EBIBLIO_TOKEN_CAPACITY 4096
 
@@ -155,9 +157,17 @@ static int RequestRaw(const char *url, const char *method, const char *body,
 
     int action_redirect = method &&
                           (strcmp(method, "POST") == 0 ||
+                           strcmp(method, "PUT") == 0 ||
                            strcmp(method, "DELETE") == 0) &&
                           url != NULL && url != ebiblio_auth_url &&
                           status >= 300 && status < 400;
+    if (method && strcmp(method, "GET") != 0) {
+        char log_line[MAX_STR_LEN * 3];
+        snprintf(log_line, sizeof(log_line), "eBiblio %s %s -> HTTP %ld (curl %d): %.300s",
+                 method, url ? url : "", status, (int)result,
+                 response->memory ? response->memory : "");
+        LogDebug(log_line);
+    }
     if (result != CURLE_OK ||
         ((status < 200 || status >= 300) && !action_redirect)) {
         SetNetworkError(result, status, error, error_size);
@@ -710,10 +720,12 @@ static void AddReturnURLFromLoanURL(OPDSEntry *entry, const char *url) {
         if (!isalnum((unsigned char)loan[i]) && loan[i] != '-' && loan[i] != '_') return;
     }
 
+    /* Keep the original prefix (e.g. https://madrid.ebiblio.es/v1/loans/ID):
+       every eBiblio API path lives under /v1/, so building the URL from the
+       host root ("/loans/ID/return") pointed at a non-existent endpoint. */
     int written = snprintf(entry->ebiblio_return_url,
                            sizeof(entry->ebiblio_return_url),
-                           "https://madrid.ebiblio.es/loans/%.*s/return",
-                           (int)loan_id_length, loan);
+                           "%.*s/return", (int)(end - url), url);
     if (written > 0 && (size_t)written < sizeof(entry->ebiblio_return_url)) {
         entry->ebiblio_return_uses_put = 1;
     } else {
