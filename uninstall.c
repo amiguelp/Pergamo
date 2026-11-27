@@ -86,6 +86,8 @@ int UninstallPergamo(void) {
         APP_ROOT_DIR "pergamo_settings.cfg",
         APP_ROOT_DIR "pergamo_settings.cfg.tmp",
         APP_ROOT_DIR "LOGTRIGGER.TXT",
+        APP_ROOT_DIR "calibre_links.cfg",
+        APP_ROOT_DIR "read_sync.cfg",
         OPDS_APP_BINARY_PATH ".new",
         OPDS_APP_BINARY_PATH ".old"
     };

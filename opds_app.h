@@ -29,7 +29,7 @@
 
 /* Estilo de DrawButton para un botón que ahora no hace nada (gris). */
 #define BUTTON_DISABLED 3
-#define PERGAMO_VERSION "1.7"
+#define PERGAMO_VERSION "1.8"
 #define DEBUG_LOG_TRIGGER APP_ROOT_DIR "LOGTRIGGER.TXT"
 #define APP_USER_AGENT "PocketBook-OPDS-Expert/1.0 (PocketBook Era; Linux)"
 
@@ -149,6 +149,7 @@ void HandleBookDetailsTouch(int x, int y);
 void DrawSettings();
 void HandleSettingsTouch(int x, int y);
 void AutoCheckForUpdates(void);
+void AutoSyncReadBooks(void);
 void DrawUninstallConfirmation();
 void HandleUninstallConfirmationTouch(int x, int y);
 void AskRestartAfterUninstall(int cleanup_complete);

@@ -71,6 +71,27 @@ retrieve and open the EPUB.
 4. OPTIONAL:  If you want to have a couple of starting servers already configured you can copy the `opds_client.cfg` file into the `applications\Pergamo\` folder. If you haven't run the application yet the `Pergamo` folder won't exist. You will have to create it manually or run the app once and come back and copy this file.
 5. Disconnect the device. The app will be available in your PocketBook's "Applications" menu.
 
+## Sync read books with Calibre-Web
+
+For Calibre-Web servers (an OPDS URL ending in `/opds`, with user and password)
+the server screen shows **Sincronizar leídos**. Pergamo reads the PocketBook
+library database (`system/explorer-3/explorer-3.db`, read-only; books whose
+`completed` flag is set) and marks those books as read in Calibre-Web. It also
+runs automatically when the app opens (at most once a day, only if Wi-Fi is
+already connected, up to 15 books each time); turn this off with
+**Configuración → Sincronizar leídos al abrir**.
+
+* **Matching:** books downloaded with Pergamo from Calibre-Web are recorded with
+  their Calibre-Web book number (`calibre_links.cfg`). Other books are looked up
+  with the OPDS search: the title must match exactly and the author must
+  share a name; if several Calibre-Web books match, nothing is changed.
+* **Marking:** Pergamo logs in to the web interface once per sync (Calibre-Web
+  limits logins), checks the book's *read* checkbox and only then calls
+  `/ajax/toggleread`, which toggles the state. It never marks a book as unread.
+* Each book's result is stored in `read_sync.cfg` so it is not repeated. The
+  manual button also retries books that could not be identified before.
+* SQLite is loaded at runtime, so the app still starts on firmwares without it.
+
 ## Automatic updates
 
 Once Pergamo 1.2 or later is installed, you no longer need to copy the `.app`

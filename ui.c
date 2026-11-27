@@ -2,6 +2,7 @@
 #include "secrets.h"
 #include "settings_store.h"
 #include "updater.h"
+#include "calibre_sync.h"
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
@@ -1244,11 +1245,11 @@ static void InstallUpdateNow(int button) {
 
 /* interactive = 1: desde Configuración (conecta la Wi-Fi y avisa de todo).
    interactive = 0: al abrir la app (solo si ya hay Wi-Fi y sin molestar). */
-static void CheckForUpdates(int interactive) {
+static int CheckForUpdates(int interactive) {
     if (interactive) {
-        if (EnsureNetwork() != 0) { Repaint(); return; }
+        if (EnsureNetwork() != 0) { Repaint(); return 0; }
     } else if (!(QueryNetwork() & NET_CONNECTED)) {
-        return;
+        return 0;
     }
     char error[MAX_STR_LEN] = {0};
     if (interactive) ShowHourglass();
@@ -1262,7 +1263,7 @@ static void CheckForUpdates(int interactive) {
             Message(ICON_ERROR, T("Actualización"), error[0] ? error : T("No se pudo completar la operación."), 5000);
             Repaint();
         }
-        return;
+        return 0;
     }
     if (result == 0) {
         if (interactive) {
@@ -1271,7 +1272,7 @@ static void CheckForUpdates(int interactive) {
             Message(ICON_INFORMATION, T("Actualización"), text, 3000);
             Repaint();
         }
-        return;
+        return 0;
     }
     static char text[512];
     snprintf(text, sizeof(text),
@@ -1279,15 +1280,95 @@ static void CheckForUpdates(int interactive) {
              update_remote_version, PERGAMO_VERSION);
     Dialog(ICON_QUESTION, T("Actualización disponible"), text,
            T("Actualizar"), T("Más tarde"), InstallUpdateNow);
+    return 1;
+}
+
+static void ScheduleReadSync(void) {
+    SetHardTimer("PergamoReadSync", AutoSyncReadBooks, 2000);
 }
 
 void AutoCheckForUpdates(void) {
-    if (!SettingGetLong("auto_update_check", 1)) return;
-    if (current_state != STATE_MAIN_MENU) return;
     long last = SettingGetLong("last_update_check", 0);
     long now = (long)time(NULL);
+    int due = SettingGetLong("auto_update_check", 1) && current_state == STATE_MAIN_MENU &&
+              !(now - last >= 0 && now - last < 24L * 3600);
+    /* Si se muestra el aviso de actualización, la sincronización espera a
+       la próxima vez que se abra la app. */
+    if (due && CheckForUpdates(0)) return;
+    ScheduleReadSync();
+}
+
+// --- Sincronizar leídos con Calibre-Web --------------------------------------
+
+static void SyncProgress(int done, int total, const char *title) {
+    (void)title;
+    char text[128];
+    snprintf(text, sizeof(text), T("Comprobando libro %d de %d"), done < total ? done + 1 : total, total);
+    UpdateProgressbar(text, total > 0 ? done * 100 / total : 100);
+}
+
+static void CloseSyncSummary(int button) {
+    (void)button;
+    Repaint();
+}
+
+static void SyncReadBooksNow(void) {
+    if (EnsureNetwork() != 0) { Repaint(); return; }
+    CalibreSyncReport report;
+    char error[MAX_STR_LEN] = {0};
+    OpenProgressbar(ICON_INFORMATION, T("Sincronizar leídos"), T("Conectando con Calibre-Web..."), 0, NULL);
+    int result = CalibreSyncRead(&servers[current_server_index], 1, 0, SyncProgress,
+                                 &report, error, sizeof(error));
+    CloseProgressbar();
+    if (result != 0) {
+        Message(ICON_ERROR, T("Sincronizar leídos"), error[0] ? error : T("No se pudo completar la operación."), 5000);
+        Repaint();
+        return;
+    }
+    static char text[1400];
+    int used = snprintf(text, sizeof(text),
+                        T("Libros terminados en el PocketBook: %d\nMarcados ahora como leídos en Calibre-Web: %d\nYa estaban leídos: %d\nSin identificar en Calibre-Web: %d"),
+                        report.finished, report.marked, report.already + report.previously_synced,
+                        report.not_found + report.ambiguous + report.errors);
+    if (report.unmatched_titles_count > 0 && used > 0 && (size_t)used < sizeof(text)) {
+        used += snprintf(text + used, sizeof(text) - used, "\n\n%s", T("No se identificaron (título distinto o no están en Calibre-Web):"));
+        for (int i = 0; i < report.unmatched_titles_count && used > 0 && (size_t)used < sizeof(text); i++)
+            used += snprintf(text + used, sizeof(text) - used, "\n- %s", report.unmatched_titles[i]);
+    }
+    Dialog(ICON_INFORMATION, T("Sincronizar leídos"), text, "OK", NULL, CloseSyncSummary);
+}
+
+/* Al abrir la app, como mucho una vez al día y solo con Wi-Fi ya conectada.
+   Procesa pocos libros cada vez para no dejar la app ocupada mucho rato. */
+void AutoSyncReadBooks(void) {
+    if (!SettingGetLong("read_sync_auto", 1)) return;
+    if (current_state != STATE_MAIN_MENU) return;
+    long last = SettingGetLong("last_read_sync", 0);
+    long now = (long)time(NULL);
     if (now - last >= 0 && now - last < 24L * 3600) return;
-    CheckForUpdates(0);
+    if (!(QueryNetwork() & NET_CONNECTED)) return;
+
+    int any = 0, marked = 0;
+    for (int i = 0; i < server_count; i++) {
+        if (!CalibreLooksLikeServer(&servers[i]) || servers[i].pass_locked) continue;
+        if (!any) ShowHourglass();
+        any = 1;
+        CalibreSyncReport report;
+        char error[MAX_STR_LEN] = {0};
+        if (CalibreSyncRead(&servers[i], 0, 15, NULL, &report, error, sizeof(error)) == 0) {
+            marked += report.marked;
+        } else {
+            LogDebug(error);
+        }
+    }
+    if (!any) return;
+    HideHourglass();
+    SettingSetLong("last_read_sync", now);
+    if (marked > 0) {
+        char text[160];
+        snprintf(text, sizeof(text), T("%d libros terminados marcados como leídos en Calibre-Web."), marked);
+        Message(ICON_INFORMATION, "Calibre-Web", text, 4000);
+    }
 }
 
 // --- Configuración ---------------------------------------------------------
@@ -1297,6 +1378,7 @@ enum {
     SETTINGS_PIN,
     SETTINGS_CHECK_UPDATES,
     SETTINGS_AUTO_UPDATES,
+    SETTINGS_READ_SYNC,
     SETTINGS_DEBUG_LOG,
     SETTINGS_CLEAR_CACHE,
     SETTINGS_ABOUT,
@@ -1351,6 +1433,10 @@ void DrawSettings() {
             case SETTINGS_AUTO_UPDATES:
                 snprintf(text, sizeof(text), T("Buscar al abrir: %s"),
                          SettingGetLong("auto_update_check", 1) ? T("activado") : T("desactivado"));
+                break;
+            case SETTINGS_READ_SYNC:
+                snprintf(text, sizeof(text), T("Sincronizar leídos al abrir: %s"),
+                         SettingGetLong("read_sync_auto", 1) ? T("activado") : T("desactivado"));
                 break;
             case SETTINGS_DEBUG_LOG:
                 snprintf(text, sizeof(text), T("Registro de depuración: %s"),
@@ -1415,6 +1501,10 @@ void HandleSettingsTouch(int x, int y) {
             break;
         case SETTINGS_CHECK_UPDATES:
             CheckForUpdates(1);
+            break;
+        case SETTINGS_READ_SYNC:
+            SettingSetLong("read_sync_auto", !SettingGetLong("read_sync_auto", 1));
+            Repaint();
             break;
         case SETTINGS_AUTO_UPDATES:
             SettingSetLong("auto_update_check", !SettingGetLong("auto_update_check", 1));
@@ -1531,14 +1621,17 @@ void DrawServerOptions() {
     int top_y = sys_height / 5;
     DrawButton(bx, top_y, bw, row_h, T("Explorar catálogo"), 0);
     int is_ebiblio = IsEbiblioURL(servers[current_server_index].url);
+    int is_calibre = !is_ebiblio && CalibreLooksLikeServer(&servers[current_server_index]);
+    int has_extra = is_ebiblio || is_calibre;
     DrawButton(bx, top_y + row_h + gap, bw, row_h,
-               is_ebiblio ? T("Mis préstamos y reservas") : T("Editar datos"), 0);
-    if (is_ebiblio) {
+               is_ebiblio ? T("Mis préstamos y reservas")
+               : is_calibre ? T("Sincronizar leídos") : T("Editar datos"), 0);
+    if (has_extra) {
         DrawButton(bx, top_y + (row_h + gap) * 2, bw, row_h, T("Editar datos"), 0);
     }
 
     /* Mismo espaciado que el resto de botones. */
-    int mid_y = top_y + (row_h + gap) * (is_ebiblio ? 3 : 2);
+    int mid_y = top_y + (row_h + gap) * (has_extra ? 3 : 2);
     DrawButton(bx, mid_y, bw, row_h, T("Eliminar servidor"), 2);
 
     DrawButton(m, sys_height - 110, sys_width - (m * 2), 90, T("Menú principal"), 1);
@@ -1548,7 +1641,10 @@ void HandleServerOptionsTouch(int x, int y) {
     int gap = sys_height / 40;
     int row_h = sys_height / 12;
     int top_y = sys_height / 5;
-    int mid_y = top_y + (row_h + gap) * (IsEbiblioURL(servers[current_server_index].url) ? 3 : 2);
+    int is_calibre_server = !IsEbiblioURL(servers[current_server_index].url) &&
+                            CalibreLooksLikeServer(&servers[current_server_index]);
+    int has_extra = IsEbiblioURL(servers[current_server_index].url) || is_calibre_server;
+    int mid_y = top_y + (row_h + gap) * (has_extra ? 3 : 2);
     int bw = sys_width - (sys_width / 4);
     int bx = sys_width / 8;
     int m = sys_width / 20;
@@ -1590,9 +1686,10 @@ void HandleServerOptionsTouch(int x, int y) {
             LoadCatalog(account_url);
             return;
         }
+        if (is_calibre_server) { RequirePin(SyncReadBooksNow); return; }
         RequirePin(OpenEditServerFormNow); return;
     }
-    if (is_ebiblio && y >= top_y + (row_h + gap) * 2 &&
+    if (has_extra && y >= top_y + (row_h + gap) * 2 &&
         y <= top_y + (row_h + gap) * 2 + row_h) {
         FlashArea(bx, top_y + (row_h + gap) * 2, bw, row_h);
         RequirePin(OpenEditServerFormNow);
@@ -2269,7 +2366,13 @@ void HandleBookDetailsTouch(int x, int y) {
                 }
                 for(size_t j=0; server_fname[j]; j++) { if(server_fname[j] == '/' || server_fname[j] == '\\' || server_fname[j] == ':') server_fname[j] = '-'; }
                 char final_path[MAX_STR_LEN]; snprintf(final_path, sizeof(final_path), "%s%s", BOOKS_DIR, server_fname);
-                if (rename(tmp_path, final_path) != 0) {
+                int renamed = rename(tmp_path, final_path) == 0;
+                if (renamed && !is_ebiblio) {
+                    /* Para "Sincronizar leídos": qué libro de Calibre-Web es este archivo */
+                    CalibreRecordDownload(servers[current_server_index].url,
+                                          e->formats[format_index].url, final_path);
+                }
+                if (!renamed) {
                     remove(tmp_path);
                     Message(ICON_ERROR, "Error", T("El libro se descargó, pero no se pudo guardar."), 4000);
                 } else if (is_lcp_license) {
