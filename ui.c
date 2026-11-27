@@ -76,6 +76,8 @@ void GoBackInHierarchy();
 void FetchThumbnailsForPage();
 void ManageImageCache(); 
 void JIT_DecodePageThumbnails(); 
+static int KnownListTotal(void);
+static void CountCurrentList(void);
 static int EbiblioActionCount(const OPDSEntry *entry);
 static int EbiblioHasBorrowAction(const OPDSEntry *entry);
 static const char *EbiblioActionURL(const OPDSEntry *entry, int index);
@@ -843,6 +845,9 @@ void LoadCatalog(const char *url) {
             JIT_DecodePageThumbnails();
             Repaint(); 
             FetchThumbnailsForPage();
+            /* Calibre-Web no da el total: contarlo tras mostrar la página */
+            if (!is_ebiblio_server && KnownListTotal() == 0 && strstr(next_page_url, "offset="))
+                SetHardTimer("PergamoCountList", CountCurrentList, 300);
         }
     } else { 
         entry_count = 0; 
@@ -1139,6 +1144,154 @@ static void OpenEditServerFormNow(void) {
     memcpy(&temp_server, &servers[current_server_index], sizeof(OPDSServer));
     current_state = STATE_SERVER_FORM;
     Repaint();
+}
+
+// --- Total de elementos de la lista -----------------------------------------
+/* Calibre-Web no dice cuántos elementos tiene una lista: solo da páginas
+   (?offset=N) y un enlace "next". El total se averigua saltando a páginas
+   lejanas para encontrar la última (pocas peticiones) y se guarda en memoria. */
+
+#define TOTALS_CACHE 16
+static struct { char base[MAX_STR_LEN]; int total; } totals_cache[TOTALS_CACHE];
+static int totals_cache_next = 0;
+
+static long UrlOffset(const char *url) {
+    const char *p = url ? strstr(url, "offset=") : NULL;
+    return p ? atol(p + 7) : 0;
+}
+
+/* La URL de la lista sin el parámetro offset (identifica la lista). */
+static void UrlWithoutOffset(const char *url, char *out, size_t out_size) {
+    snprintf(out, out_size, "%s", url ? url : "");
+    char *p = strstr(out, "offset=");
+    if (!p) return;
+    char *end = strchr(p, '&');
+    if (end) memmove(p, end + 1, strlen(end + 1) + 1);
+    else *p = '\0';
+    size_t n = strlen(out);
+    while (n > 0 && (out[n - 1] == '?' || out[n - 1] == '&')) out[--n] = '\0';
+}
+
+/* >0 total conocido, -1 no se pudo contar, 0 sin contar todavía. */
+static int CachedTotal(const char *base) {
+    for (int i = 0; i < TOTALS_CACHE; i++)
+        if (totals_cache[i].base[0] && strcmp(totals_cache[i].base, base) == 0) return totals_cache[i].total;
+    return 0;
+}
+
+static int ListCountPending(void) {
+    if (!strstr(next_page_url, "offset=") || IsEbiblioURL(servers[current_server_index].url)) return 0;
+    char base[MAX_STR_LEN];
+    UrlWithoutOffset(last_loaded_url, base, sizeof(base));
+    return CachedTotal(base) == 0;
+}
+
+static void CacheTotal(const char *base, int total) {
+    snprintf(totals_cache[totals_cache_next].base, MAX_STR_LEN, "%s", base);
+    totals_cache[totals_cache_next].total = total;
+    totals_cache_next = (totals_cache_next + 1) % TOTALS_CACHE;
+}
+
+/* Total exacto si ya se sabe; 0 si no. */
+static int KnownListTotal(void) {
+    if (total_results > 0) return total_results;
+    if (strlen(next_page_url) == 0) {
+        if (page_stack_ptr == 0) return entry_count;                 /* lista de una sola página */
+        long off = UrlOffset(last_loaded_url);
+        if (off > 0) return (int)off + entry_count;                   /* última página de Calibre-Web */
+    }
+    char base[MAX_STR_LEN];
+    UrlWithoutOffset(last_loaded_url, base, sizeof(base));
+    int cached = CachedTotal(base);
+    return cached > 0 ? cached : 0;
+}
+
+static void BuildPageText(char *out, size_t out_size) {
+    int entries_per_page = GetCatalogRows();
+    int absolute_page = current_global_offset + current_page + 1;
+    int local_max_pages = (entry_count + entries_per_page - 1) / entries_per_page;
+    int total = KnownListTotal();
+    if (total > 0) {
+        int max_pages = (total + entries_per_page - 1) / entries_per_page;
+        if (max_pages < absolute_page) max_pages = absolute_page;
+        snprintf(out, out_size, T("Página %d / %d   |   Total: %d"), absolute_page, max_pages, total);
+    } else {
+        int known_max = current_global_offset + local_max_pages;
+        if (strlen(next_page_url) == 0)
+            snprintf(out, out_size, T("Página %d / %d"), absolute_page, known_max);
+        else if (ListCountPending())
+            snprintf(out, out_size, T("Página %d / %d+   |   Total: contando..."), absolute_page, known_max);
+        else
+            snprintf(out, out_size, T("Página %d / %d+"), absolute_page, known_max);
+    }
+}
+
+static void DrawPageText(int partial_update) {
+    char page_txt[160];
+    BuildPageText(page_txt, sizeof(page_txt));
+    int y = BrowseNavY() - 45;
+    if (partial_update) FillArea(0, y - 2, sys_width, 34, 0xFFFFFF);
+    SetTextFont(24, 0x555555);
+    DrawTextRect(0, y, sys_width, 30, page_txt, ALIGN_CENTER);
+    if (partial_update) PartialUpdate(0, y - 2, sys_width, 34);
+}
+
+/* Una página de la lista: cuántos elementos trae y si hay otra después.
+   Devuelve -1 si falla la red. */
+static int ProbeListPage(const char *base, long offset, int *has_next) {
+    char url[MAX_STR_LEN + 40];
+    snprintf(url, sizeof(url), "%s%soffset=%ld", base, strchr(base, '?') ? "&" : "?", offset);
+    struct MemoryStruct chunk = {NULL, 0};
+    char error[MAX_STR_LEN];
+    if (FetchFeed(url, servers[current_server_index].user, servers[current_server_index].pass,
+                  &chunk, error, sizeof(error)) != 0 || !chunk.memory) {
+        free(chunk.memory);
+        return -1;
+    }
+    int entries = 0;
+    for (const char *p = strstr(chunk.memory, "<entry"); p; p = strstr(p + 6, "<entry"))
+        if (p[6] == '>' || p[6] == ' ' || p[6] == '\n' || p[6] == '\r' || p[6] == '\t') entries++;
+    *has_next = strstr(chunk.memory, "rel=\"next\"") != NULL || strstr(chunk.memory, "rel='next'") != NULL;
+    free(chunk.memory);
+    return entries;
+}
+
+/* Cuenta los elementos de la lista actual (paginada con ?offset=). */
+static void CountCurrentList(void) {
+    if (current_state != STATE_BROWSING || KnownListTotal() > 0 || !ListCountPending()) return;
+    char base[MAX_STR_LEN];
+    UrlWithoutOffset(next_page_url, base, sizeof(base));
+    long here = UrlOffset(last_loaded_url);
+    long page = UrlOffset(next_page_url) - here;       /* tamaño de página del servidor */
+    if (page <= 0) return;
+    char counted_url[MAX_STR_LEN];
+    snprintf(counted_url, sizeof(counted_url), "%s", last_loaded_url);
+
+    ShowHourglass();
+    long lo = here;          /* página que sabemos que tiene otra después */
+    long hi = -1;            /* primera página que sabemos que está vacía */
+    long step = page;
+    int total = 0, probes = 0, has_next = 0;
+    while (!total && probes < 24) {
+        long off = (hi < 0) ? lo + step : lo + ((hi - lo) / page / 2) * page;
+        if (hi >= 0 && off <= lo) off = lo + page;
+        int n = ProbeListPage(base, off, &has_next);
+        probes++;
+        if (n < 0) break;                                   /* sin red: se deja en "+" */
+        if (n > 0 && !has_next) total = (int)off + n;       /* última página */
+        else if (n > 0) { lo = off; if (hi < 0) step *= 2; }
+        else hi = off;
+        if (hi >= 0 && hi - lo <= page && !total) {
+            n = ProbeListPage(base, lo + page, &has_next);
+            probes++;
+            if (n > 0 && !has_next) total = (int)(lo + page) + n;
+            break;
+        }
+    }
+    HideHourglass();
+    CacheTotal(base, total > 0 ? total : -1);   /* -1: no se pudo, no reintentar */
+    /* Solo se redibuja si seguimos en la misma lista */
+    if (current_state == STATE_BROWSING && strcmp(counted_url, last_loaded_url) == 0) DrawPageText(1);
 }
 
 void DrawMainMenu() {
@@ -1907,21 +2060,8 @@ void DrawBrowsingView() {
             y += dynamic_row_h;
         }
 
-        char page_txt[128]; 
-        int absolute_page = current_global_offset + current_page + 1;
-        int local_max_pages = (entry_count + entries_per_page - 1) / entries_per_page;
-        
-        if (total_results > 0) {
-            int absolute_max_pages = (total_results + entries_per_page - 1) / entries_per_page;
-            snprintf(page_txt, sizeof(page_txt), T("Página %d / %d   |   Catálogo total: %d"), absolute_page, absolute_max_pages, total_results);
-        } else {
-            int known_max = current_global_offset + local_max_pages;
-            if (strlen(next_page_url) == 0) {
-                snprintf(page_txt, sizeof(page_txt), T("Página %d / %d"), absolute_page, known_max);
-            } else {
-                snprintf(page_txt, sizeof(page_txt), T("Página %d / %d+"), absolute_page, known_max);
-            }
-        }
+        char page_txt[160];
+        BuildPageText(page_txt, sizeof(page_txt));
         
         SetTextFont(24, 0x555555); 
         DrawTextRect(0, BrowseNavY() - 45, sys_width, 30, page_txt, ALIGN_CENTER);

@@ -483,6 +483,10 @@ static const Translation translations[] = {
      "Calibre-Web has temporarily blocked access after too many attempts. Try again later."},
     {"Calibre-Web rechazó el usuario o la contraseña.",
      "Calibre-Web rejected the user name or password."},
+    {"Página %d / %d   |   Total: %d",
+     "Page %d / %d   |   Total: %d"},
+    {"Página %d / %d+   |   Total: contando...",
+     "Page %d / %d+   |   Total: counting..."},
 };
 
 #define I18N_GLOBAL_CONFIG "/mnt/ext1/system/config/global.cfg"
