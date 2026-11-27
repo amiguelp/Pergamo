@@ -988,10 +988,6 @@ static int AddPublicationEntries(struct json_object *array, const char *base_url
         const char *description = JsonString(metadata, "description");
         if (description) strncpy(entry->summary, description, sizeof(entry->summary) - 1);
         CopyAuthor(metadata, entry->author, sizeof(entry->author));
-        {
-            const char *published = JsonString(metadata, "published");
-            if (published) snprintf(entry->published, sizeof(entry->published), "%s", published);
-        }
         entry->is_book = 1;
 
         struct json_object *images = NULL;

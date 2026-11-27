@@ -76,14 +76,7 @@ void GoBackInHierarchy();
 void FetchThumbnailsForPage();
 void ManageImageCache(); 
 void JIT_DecodePageThumbnails(); 
-/* Orden de las listas del catálogo (ajuste catalog_order) */
-enum { ORDER_SERVER = 0, ORDER_NEWEST = 1, ORDER_OLDEST = 2 };
 static int KnownListTotal(void);
-static void ApplyCatalogOrder(void);
-static int CatalogOrder(void);
-static int ListHasBooks(void);
-static void OpenOrderMenu(int x, int y);
-static const char *OrderButtonLabel(void);
 static void CountCurrentList(void);
 static int EbiblioActionCount(const OPDSEntry *entry);
 static int EbiblioHasBorrowAction(const OPDSEntry *entry);
@@ -215,9 +208,9 @@ void SetTextFont(int size, int color) {
 
 /* --- Geometría de la vista de catálogo (compartida entre dibujo y toques) ---
    Abajo, de arriba a abajo: texto de página, barra de navegación
-   (Atrás | Buscar | Inicio | Ordenar) y fila de paginación. Para salir de
-   la app se usa el botón de la pantalla principal. */
-#define BROWSE_NAV_BUTTONS 4
+   (Atrás | Buscar | Inicio) y fila de paginación. Para salir de la app se
+   usa el botón de la pantalla principal. */
+#define BROWSE_NAV_BUTTONS 3
 
 static int BrowseFooterY(void) { return sys_height - sys_height / 13 - 10; }
 static int BrowseNavH(void) { return sys_height / 13; }
@@ -852,14 +845,9 @@ void LoadCatalog(const char *url) {
             JIT_DecodePageThumbnails();
             Repaint(); 
             FetchThumbnailsForPage();
-            if (CatalogOrder() != ORDER_SERVER && ListHasBooks()) {
-                /* Orden por publicación: cargar la lista entera y ordenarla
-                   (eso también da el total) */
-                SetHardTimer("PergamoSortList", ApplyCatalogOrder, 300);
-            } else if (!is_ebiblio_server && KnownListTotal() == 0 && strstr(next_page_url, "offset=")) {
-                /* Calibre-Web no da el total: contarlo tras mostrar la página */
+            /* Calibre-Web no da el total: contarlo tras mostrar la página */
+            if (!is_ebiblio_server && KnownListTotal() == 0 && strstr(next_page_url, "offset="))
                 SetHardTimer("PergamoCountList", CountCurrentList, 300);
-            }
         }
     } else { 
         entry_count = 0; 
@@ -1304,187 +1292,6 @@ static void CountCurrentList(void) {
     CacheTotal(base, total > 0 ? total : -1);   /* -1: no se pudo, no reintentar */
     /* Solo se redibuja si seguimos en la misma lista */
     if (current_state == STATE_BROWSING && strcmp(counted_url, last_loaded_url) == 0) DrawPageText(1);
-}
-
-// --- Ordenar por fecha de publicación ---------------------------------------
-/* El orden elegido se guarda (catalog_order: 0 = como en el servidor,
-   1 = publicación más reciente primero, 2 = más antigua primero) y se aplica a
-   cada lista de libros. Para ordenar una lista entera se cargan antes todas
-   sus páginas (hasta MAX_ENTRIES). */
-
-static int CatalogOrder(void) {
-    long order = SettingGetLong("catalog_order", ORDER_SERVER);
-    return (order == ORDER_NEWEST || order == ORDER_OLDEST) ? (int)order : ORDER_SERVER;
-}
-
-static int ListHasBooks(void) {
-    for (int i = 0; i < entry_count; i++) if (current_entries[i].is_book) return 1;
-    return 0;
-}
-
-/* "AAAA-MM-DD" de la fecha de publicación; 0 si no se sabe (Calibre usa
-   el año 101 para "sin fecha"). */
-static int PublicationKey(const OPDSEntry *e, char key[11]) {
-    const char *p = e->published;
-    if (!isdigit((unsigned char)p[0]) || !isdigit((unsigned char)p[1]) ||
-        !isdigit((unsigned char)p[2]) || !isdigit((unsigned char)p[3])) return 0;
-    if (atoi(p) < 1000) return 0;
-    snprintf(key, 11, "%.10s", p);
-    for (size_t i = strlen(key); i < 10; i++) key[i] = (i == 4 || i == 7) ? '-' : '0';
-    key[10] = '\0';
-    return 1;
-}
-
-static int sort_order_for_compare = ORDER_NEWEST;
-
-static int ComparePublication(const void *a, const void *b) {
-    int ia = *(const int *)a, ib = *(const int *)b;
-    char ka[11], kb[11];
-    int has_a = PublicationKey(&current_entries[ia], ka);
-    int has_b = PublicationKey(&current_entries[ib], kb);
-    if (has_a != has_b) return has_a ? -1 : 1;          /* sin fecha, al final */
-    if (has_a) {
-        int c = strcmp(ka, kb);
-        if (c) return sort_order_for_compare == ORDER_NEWEST ? -c : c;
-    }
-    return ia - ib;                                       /* estable */
-}
-
-static int SortLoadedEntries(int order) {
-    if (order == ORDER_SERVER || entry_count < 2) return 0;
-    int *index = malloc(sizeof(int) * entry_count);
-    OPDSEntry *sorted = malloc(sizeof(OPDSEntry) * entry_count);
-    if (!index || !sorted) { free(index); free(sorted); return -1; }
-    for (int i = 0; i < entry_count; i++) index[i] = i;
-    sort_order_for_compare = order;
-    qsort(index, entry_count, sizeof(int), ComparePublication);
-    for (int i = 0; i < entry_count; i++) sorted[i] = current_entries[index[i]];
-    memcpy(current_entries, sorted, sizeof(OPDSEntry) * entry_count);
-    free(sorted);
-    free(index);
-    FreeListThumbs();      /* las miniaturas en memoria iban por posición */
-    return 0;
-}
-
-/* Descarga y analiza una página de la lista; append = añadir a lo cargado. */
-static int FetchListPage(const char *url, int append) {
-    struct MemoryStruct chunk = {NULL, 0};
-    char error[MAX_STR_LEN];
-    if (FetchFeed(url, servers[current_server_index].user, servers[current_server_index].pass,
-                  &chunk, error, sizeof(error)) != 0 || !chunk.memory) {
-        free(chunk.memory);
-        return -1;
-    }
-    int start = append ? entry_count : 0;
-    parser_append_mode = append;
-    int result = ParseOPDSFeed(chunk.memory, url);
-    parser_append_mode = 0;
-    free(chunk.memory);
-    if (result != 0) return -1;
-    for (int i = start; i < entry_count; i++) {
-        StripHTML(current_entries[i].title);
-        StripHTML(current_entries[i].author);
-        StripHTML(current_entries[i].summary);
-        SeparateTags(current_entries[i].summary);
-    }
-    return 0;
-}
-
-/* Carga todas las páginas de la lista actual. 0 si está completa, 1 si se
-   cortó al llegar al máximo, -1 si falló la red (se queda lo cargado). */
-static int LoadWholeList(void) {
-    if (IsEbiblioURL(servers[current_server_index].url)) return 0;   /* listas cortas */
-    if (!next_page_url[0] && page_stack_ptr == 0) return 0;
-    int expected = KnownListTotal();
-    OpenProgressbar(ICON_INFORMATION, T("Ordenar"), T("Cargando la lista completa..."), 0, NULL);
-    int failed = 0;
-    if (page_stack_ptr > 0) {          /* empezar por la primera página */
-        char first[MAX_STR_LEN];
-        snprintf(first, sizeof(first), "%s", page_stack[0]);
-        if (FetchListPage(first, 0) != 0) failed = 1;
-        else {
-            snprintf(last_loaded_url, MAX_STR_LEN, "%s", first);
-            page_stack_ptr = 0;
-            current_global_offset = 0;
-        }
-    }
-    while (!failed && next_page_url[0] && entry_count < MAX_ENTRIES) {
-        char url[MAX_STR_LEN];
-        snprintf(url, sizeof(url), "%s", next_page_url);
-        if (FetchListPage(url, 1) != 0) { failed = 1; break; }
-        char text[96];
-        if (expected > 0) snprintf(text, sizeof(text), T("Cargados %d de %d"), entry_count, expected);
-        else snprintf(text, sizeof(text), T("Cargados %d"), entry_count);
-        UpdateProgressbar(text, expected > 0 ? (entry_count * 100 / expected) % 101 : 50);
-    }
-    CloseProgressbar();
-    int truncated = !failed && next_page_url[0] != '\0';
-    if (failed || truncated) {
-        /* Lo cargado queda ordenado; no se mezcla con más páginas del servidor */
-        next_page_url[0] = '\0';
-        char text[200];
-        if (failed) snprintf(text, sizeof(text), "%s", T("No se pudo cargar toda la lista: se ordena lo cargado."));
-        else snprintf(text, sizeof(text), T("La lista es muy larga: solo se ordenan los primeros %d libros."), entry_count);
-        Message(ICON_WARNING, T("Ordenar"), text, 4000);
-    }
-    return failed ? -1 : truncated ? 1 : 0;
-}
-
-static void ApplyCatalogOrder(void) {
-    int order = CatalogOrder();
-    if (current_state != STATE_BROWSING || order == ORDER_SERVER || !ListHasBooks()) return;
-    char start_url[MAX_STR_LEN];
-    snprintf(start_url, sizeof(start_url), "%s", last_loaded_url);
-    LoadWholeList();
-    if (current_state != STATE_BROWSING) return;
-    SortLoadedEntries(order);
-    current_page = 0;
-    (void)start_url;
-    JIT_DecodePageThumbnails();
-    Repaint();
-    FetchThumbnailsForPage();
-}
-
-static void OrderMenuHandler(int index) {
-    if (index < ORDER_SERVER || index > ORDER_OLDEST) { Repaint(); return; }
-    int previous = CatalogOrder();
-    SettingSetLong("catalog_order", index);
-    if (index == ORDER_SERVER) {
-        if (previous != ORDER_SERVER) {
-            /* volver al orden del servidor: recargar la lista desde el principio */
-            char first[MAX_STR_LEN];
-            snprintf(first, sizeof(first), "%s", page_stack_ptr > 0 ? page_stack[0] : last_loaded_url);
-            page_stack_ptr = 0; current_global_offset = 0; current_page = 0;
-            LoadCatalog(first);
-        } else {
-            Repaint();
-        }
-        return;
-    }
-    ApplyCatalogOrder();
-}
-
-static void OpenOrderMenu(int x, int y) {
-    static char header[64], server[96], newest[96], oldest[96];
-    snprintf(header, sizeof(header), "%s", T("Ordenar"));
-    snprintf(server, sizeof(server), "%s", T("Como en el servidor"));
-    snprintf(newest, sizeof(newest), "%s", T("Publicación: más recientes primero"));
-    snprintf(oldest, sizeof(oldest), "%s", T("Publicación: más antiguos primero"));
-    static imenu menu[5];
-    menu[0] = (imenu){ ITEM_HEADER, 0, header, NULL };
-    menu[1] = (imenu){ ITEM_ACTIVE, ORDER_SERVER, server, NULL };
-    menu[2] = (imenu){ ITEM_ACTIVE, ORDER_NEWEST, newest, NULL };
-    menu[3] = (imenu){ ITEM_ACTIVE, ORDER_OLDEST, oldest, NULL };
-    menu[4] = (imenu){ 0, 0, NULL, NULL };
-    OpenMenu(menu, CatalogOrder(), x, y, OrderMenuHandler);
-}
-
-static const char *OrderButtonLabel(void) {
-    switch (CatalogOrder()) {
-        case ORDER_NEWEST: return T("RECIENTES");
-        case ORDER_OLDEST: return T("ANTIGUOS");
-        default: return T("ORDENAR");
-    }
 }
 
 void DrawMainMenu() {
@@ -2159,14 +1966,13 @@ void DrawBrowsingView() {
 
     /* Barra de navegación abajo, con botones grandes. */
     {
-        static const char *labels[BROWSE_NAV_BUTTONS] = { "ATRÁS", "BUSCAR", "INICIO", "ORDENAR" };
+        static const char *labels[BROWSE_NAV_BUTTONS] = { "ATRÁS", "BUSCAR", "INICIO" };
         int nav_y = BrowseNavY(), nav_h = BrowseNavH();
         for (int i = 0; i < BROWSE_NAV_BUTTONS; i++) {
             int bx, bw;
             BrowseNavButtonRect(i, &bx, &bw);
-            int disabled = (i == 0 && !BackButtonUseful()) || (i == 3 && !ListHasBooks());
-            const char *label = i == 3 ? OrderButtonLabel() : T(labels[i]);
-            DrawButton(bx, nav_y, bw, nav_h, label, disabled ? BUTTON_DISABLED : 0);
+            int disabled = (i == 0 && !BackButtonUseful());
+            DrawButton(bx, nav_y, bw, nav_h, T(labels[i]), disabled ? BUTTON_DISABLED : 0);
         }
     }
 
@@ -2340,7 +2146,6 @@ void HandleBrowsingTouch(int x, int y) {
             BrowseNavButtonRect(i, &bx, &bw);
             if (x < bx || x > bx + bw) continue;
             if (i == 0 && !BackButtonUseful()) return;   /* Atrás en gris */
-            if (i == 3 && !ListHasBooks()) return;       /* Ordenar: lista sin libros */
             FlashArea(bx, nav_y, bw, nav_h);
             switch (i) {
                 case 0: /* Atrás */
@@ -2349,9 +2154,6 @@ void HandleBrowsingTouch(int x, int y) {
                 case 1: /* Buscar */
                     memset(search_input_buffer, 0, sizeof(search_input_buffer));
                     OpenKeyboard(T("Buscar en el catálogo:"), search_input_buffer, 255, 0, PerformSearch);
-                    break;
-                case 3: /* Ordenar */
-                    OpenOrderMenu(bx - bw / 2, nav_y - nav_h * 3);
                     break;
                 case 2: /* Inicio: pantalla del servidor */
                     nav_stack_ptr = 0; current_level_label[0] = '\0'; page_stack_ptr = 0; current_global_offset = 0; current_page = 0;
@@ -2547,13 +2349,6 @@ static void BuildBookDetailSummary(const OPDSEntry *entry, char *output,
         snprintf(availability_info + used, sizeof(availability_info) - used,
                  T("%sTu posición: %d"),
                  used ? "\n" : "", entry->ebiblio_hold_position);
-    }
-
-    char key[11];
-    if (PublicationKey(entry, key)) {
-        size_t n = strlen(availability_info);
-        snprintf(availability_info + n, sizeof(availability_info) - n, T("%sPublicado: %.4s"),
-                 n ? "\n" : "", key);
     }
 
     if (availability_info[0]) {

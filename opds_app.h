@@ -29,7 +29,7 @@
 
 /* Estilo de DrawButton para un botón que ahora no hace nada (gris). */
 #define BUTTON_DISABLED 3
-#define PERGAMO_VERSION "2.0"
+#define PERGAMO_VERSION "1.9"
 #define DEBUG_LOG_TRIGGER APP_ROOT_DIR "LOGTRIGGER.TXT"
 #define APP_USER_AGENT "PocketBook-OPDS-Expert/1.0 (PocketBook Era; Linux)"
 
@@ -84,9 +84,6 @@ typedef struct {
     int ebiblio_cancel_uses_delete;
     int ebiblio_return_uses_put;
     int ebiblio_details_loaded;
-    /* Fecha de publicación tal como viene en el catálogo (p. ej.
-       "2018-03-01T00:00:00+00:00"); vacía si no se indica. */
-    char published[32];
 } OPDSEntry;
 
 // --- Global Variables (Externs) ---
@@ -138,9 +135,6 @@ int DownloadImage(const char *url, const char *filepath, const char *user, const
 int DownloadBook(const char *url, const char *tmp_path, char *out_filename, const char *user, const char *pass);
 
 int ParseOPDSFeed(const char *xml_data, const char *base_url);
-/* Si vale 1, ParseOPDSFeed añade las entradas a las ya cargadas (para cargar
-   todas las páginas de una lista) en lugar de sustituirlas. */
-extern int parser_append_mode;
 
 void DrawMainMenu();
 void HandleMainMenuTouch(int x, int y);
