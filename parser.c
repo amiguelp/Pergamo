@@ -160,15 +160,19 @@ static void GetAuthorName(xmlNodePtr parent, char *out, int max_len) {
     }
 }
 
+int parser_append_mode = 0;
+
 int ParseOPDSFeed(const char *xml_data, const char *base_url) {
     if (!xml_data) return -1;
     
-    entry_count = 0;
     next_page_url[0] = '\0';
-    current_search_url[0] = '\0';
-    current_feed_title[0] = '\0';
-    is_opensearch_url = 0; 
-    total_results = 0;
+    if (!parser_append_mode) {
+        entry_count = 0;
+        current_search_url[0] = '\0';
+        current_feed_title[0] = '\0';
+        is_opensearch_url = 0; 
+        total_results = 0;
+    }
     
     size_t size = strlen(xml_data);
     
@@ -182,15 +186,17 @@ int ParseOPDSFeed(const char *xml_data, const char *base_url) {
     
     xmlXPathContextPtr ctx = xmlXPathNewContext(doc);
 
-    xmlChar *title = GetXPathVal(ctx, "//*[local-name()='feed']/*[local-name()='title']");
-    if (title) { strncpy(current_feed_title, (char*)title, MAX_STR_LEN-1); xmlFree(title); }
+    if (!parser_append_mode) {
+        xmlChar *title = GetXPathVal(ctx, "//*[local-name()='feed']/*[local-name()='title']");
+        if (title) { strncpy(current_feed_title, (char*)title, MAX_STR_LEN-1); xmlFree(title); }
 
-    xmlChar *total_res = GetXPathVal(ctx, "//*[local-name()='totalResults']");
-    if (total_res) { 
-        total_results = atoi((char*)total_res); 
-        xmlFree(total_res); 
-    } else { 
-        total_results = 0; 
+        xmlChar *total_res = GetXPathVal(ctx, "//*[local-name()='totalResults']");
+        if (total_res) { 
+            total_results = atoi((char*)total_res); 
+            xmlFree(total_res); 
+        } else { 
+            total_results = 0; 
+        }
     }
 
     // Parse navigation and pagination links
@@ -205,7 +211,7 @@ int ParseOPDSFeed(const char *xml_data, const char *base_url) {
             if (rel && href) {
                 if (strstr(rel, "next")) {
                     ResolveURL(doc, node, base_url, href, next_page_url, MAX_STR_LEN);
-                } else if (strstr(rel, "search")) {
+                } else if (strstr(rel, "search") && !parser_append_mode) {
                     int is_atom = 0;
                     int is_osd = 0;
 
@@ -242,6 +248,10 @@ int ParseOPDSFeed(const char *xml_data, const char *base_url) {
 
             GetChildNodeText(entry_node, "title", e->title, MAX_STR_LEN);
             GetAuthorName(entry_node, e->author, MAX_STR_LEN);
+            /* Fecha de publicación: Atom <published>, o dc:issued / dc:date */
+            GetChildNodeText(entry_node, "published", e->published, sizeof(e->published));
+            if (!e->published[0]) GetChildNodeText(entry_node, "issued", e->published, sizeof(e->published));
+            if (!e->published[0]) GetChildNodeText(entry_node, "date", e->published, sizeof(e->published));
             GetChildNodeText(entry_node, "summary", e->summary, 1023);
             if (strlen(e->summary) == 0) {
                 GetChildNodeText(entry_node, "content", e->summary, 1023);
