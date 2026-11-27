@@ -142,7 +142,9 @@ def write_c_array(file_path, array_name, out_file):
     print(f"Successfully converted {file_path} to {array_name} array.")
 
 if __name__ == "__main__":
-    generate_launcher_icons("opds.bmp")
+    # The launcher icons (Pergamo.bmp / Pergamo_f.bmp) are now drawn by
+    # tools/make_launcher_icons.py at the firmware size (122 x 122); this script
+    # only converts the folder/book icons so it no longer overwrites them.
 
     with open("icons.h", "w") as out_file:
         out_file.write("#ifndef ICONS_H\n#define ICONS_H\n\n")

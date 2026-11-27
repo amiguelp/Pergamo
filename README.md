@@ -81,10 +81,14 @@ additional launches are ignored while the app is already starting.
 
 Only the `.app` file needs to be copied to the device. If the firmware does not
 provide a compatible `view.json`, the app continues to work with the default
-launcher icon. `opds.bmp` is the source artwork. Running `image_to_c.py` with
-Python 3 resizes it with a safe border into uncompressed 106 × 128, 8-bit BMP
-icons. The build embeds the current `Pergamo.bmp` and `Pergamo_f.bmp`
-directly, so replacing either file is picked up by the next `make`.
+launcher icon. The launcher icons are drawn as line art by
+`tools/make_launcher_icons.py` (Python 3 + Pillow) to match the firmware's own
+app icons: 122 × 122 px, ~3 px anti-aliased strokes and the same margins, saved
+as 24-bit BMP (`Pergamo.bmp`, and `Pergamo_f.bmp` for the selected state). The
+build embeds both files directly, so regenerating them is picked up by the next
+`make`. When an updated app ships a different icon, it replaces the installed
+copy and offers to restart the reader so the launcher reloads it. `opds.bmp` is
+the original artwork, kept for reference.
 
 ## Uninstalling
 

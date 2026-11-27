@@ -52,12 +52,29 @@ static int WriteAtomically(const char *path, const void *data, size_t size, mode
     return 0;
 }
 
-static int WriteAssetIfMissing(const char *path, const unsigned char *data, size_t size) {
+/* Instala el icono si falta o si es distinto del incluido en la app (p. ej.
+   tras actualizar Pergamo). Devuelve 1 si lo escribió, 0 si ya estaba igual. */
+static int WriteAssetIfChanged(const char *path, const unsigned char *data, size_t size) {
     struct stat st;
     if (stat(path, &st) == 0) {
-        return S_ISREG(st.st_mode) ? 0 : -1;
+        if (!S_ISREG(st.st_mode)) return -1;
+        if ((size_t)st.st_size == size) {
+            FILE *file = fopen(path, "rb");
+            if (file) {
+                int same = 1;
+                unsigned char buffer[4096];
+                size_t offset = 0, n;
+                while (same && (n = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+                    if (offset + n > size || memcmp(buffer, data + offset, n) != 0) same = 0;
+                    offset += n;
+                }
+                fclose(file);
+                if (same && offset == size) return 0;
+            }
+        }
+    } else if (errno != ENOENT) {
+        return -1;
     }
-    if (errno != ENOENT) return -1;
     return WriteAtomically(path, data, size, 0644) == 0 ? 1 : -1;
 }
 
@@ -251,7 +268,7 @@ int InstallLauncherIcon(void) {
     }
 
     int icons_changed = 0;
-    int result = WriteAssetIfMissing(LAUNCHER_ICON_PATH, opds_launcher_icon_bmp,
+    int result = WriteAssetIfChanged(LAUNCHER_ICON_PATH, opds_launcher_icon_bmp,
                                     opds_launcher_icon_bmp_len);
     if (result < 0) {
         LogDebug("Launcher icon setup failed: cannot install icon image files.");
@@ -259,7 +276,7 @@ int InstallLauncherIcon(void) {
     }
     icons_changed |= result;
 
-    result = WriteAssetIfMissing(LAUNCHER_FOCUSED_ICON_PATH,
+    result = WriteAssetIfChanged(LAUNCHER_FOCUSED_ICON_PATH,
                                  opds_launcher_icon_focused_bmp,
                                  opds_launcher_icon_focused_bmp_len);
     if (result < 0) {
