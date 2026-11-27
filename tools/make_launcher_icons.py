@@ -2,9 +2,10 @@
 """Genera los iconos del launcher de PocketBook (Pergamo.bmp y Pergamo_f.bmp).
 
 Dibuja el icono como line-art vectorial al estilo de los iconos del sistema
-(en el Verse Pro: 106 x 106 px con un dibujo de ~66 px y trazo de ~3 px,
-medido sobre fotos del launcher; la wiki de MobileRead indica 122 x 122
-para otros modelos) y lo
+(en el Verse Pro: 98 x 98 px con un dibujo de ~72 px y trazo de ~3 px,
+ajustado con fotos del launcher: el nombre se coloca más abajo cuanto más
+alta es la imagen; la wiki de MobileRead indica 122 x 122 para otros
+modelos, y con ese tamaño el nombre quedaba bajo) y lo
 guarda como BMP de 24 bits, el formato que ya acepta el launcher.
 
 Uso:  python3 tools/make_launcher_icons.py [carpeta_salida]
@@ -16,10 +17,10 @@ import sys
 
 from PIL import Image, ImageDraw
 
-SIZE = 106          # tamaño de los iconos de aplicación del sistema (Verse Pro)
+SIZE = 98           # alto de imagen con el que el nombre queda alineado (Verse Pro)
 SS = 8              # supermuestreo para suavizar bordes
 STROKE = 3.2        # grosor de línea en píxeles finales
-GLYPH = 66          # lado del dibujo (margen como los del sistema)
+GLYPH = 72          # lado del dibujo (margen como los del sistema)
 DESIGN = 86         # el dibujo está diseñado en una cuadrícula de 86 unidades
 K = GLYPH / DESIGN
 

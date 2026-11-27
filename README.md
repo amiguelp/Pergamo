@@ -83,9 +83,10 @@ Only the `.app` file needs to be copied to the device. If the firmware does not
 provide a compatible `view.json`, the app continues to work with the default
 launcher icon. The launcher icons are drawn as line art by
 `tools/make_launcher_icons.py` (Python 3 + Pillow) to match the firmware's own
-app icons on the Verse Pro: 106 × 106 px with a ~66 px drawing and ~3 px
-anti-aliased strokes (measured on the launcher; the MobileRead wiki lists
-122 × 122 for other models, which pushed the label lower), saved
+app icons on the Verse Pro: 98 × 98 px with a ~72 px drawing and ~3 px
+anti-aliased strokes (calibrated with photos of the launcher: the label is
+placed lower the taller the image is; the MobileRead wiki lists 122 × 122 for
+other models, which pushed the label lower), saved
 as 24-bit BMP (`Pergamo.bmp`, and `Pergamo_f.bmp` for the selected state). The
 build embeds both files directly, so regenerating them is picked up by the next
 `make`. When an updated app ships a different icon, it replaces the installed
