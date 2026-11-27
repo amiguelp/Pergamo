@@ -214,6 +214,12 @@ static int BrowseNavH(void) { return sys_height / 13; }
 static int BrowseNavY(void) { return BrowseFooterY() - sys_height / 60 - BrowseNavH(); }
 static int BrowseListBottom(void) { return BrowseNavY() - 55; }
 
+/* En el primer nivel del catálogo (o de "Mis préstamos y reservas")
+   "Atrás" haría lo mismo que "Inicio", así que aparece en gris. */
+static int BackButtonUseful(void) {
+    return nav_stack_ptr > 0;
+}
+
 static int PreviousPageAvailable(void) {
     return current_page > 0 || page_stack_ptr > 0;
 }
@@ -1715,7 +1721,8 @@ void DrawBrowsingView() {
         for (int i = 0; i < BROWSE_NAV_BUTTONS; i++) {
             int bx, bw;
             BrowseNavButtonRect(i, &bx, &bw);
-            DrawButton(bx, nav_y, bw, nav_h, T(labels[i]), 0);
+            int disabled = (i == 0 && !BackButtonUseful());
+            DrawButton(bx, nav_y, bw, nav_h, T(labels[i]), disabled ? BUTTON_DISABLED : 0);
         }
     }
 
@@ -1901,6 +1908,7 @@ void HandleBrowsingTouch(int x, int y) {
             int bx, bw;
             BrowseNavButtonRect(i, &bx, &bw);
             if (x < bx || x > bx + bw) continue;
+            if (i == 0 && !BackButtonUseful()) return;   /* Atrás en gris */
             FlashArea(bx, nav_y, bw, nav_h);
             switch (i) {
                 case 0: /* Atrás */
