@@ -33,6 +33,8 @@ ibitmap *list_thumbs[MAX_ENTRIES] = {NULL};
 // Navigation tracking
 #define MAX_NAV_STACK 32
 char nav_stack[MAX_NAV_STACK][MAX_STR_LEN];
+/* Título de cada nivel guardado, para mostrar la ruta en la cabecera. */
+static char nav_title_stack[MAX_NAV_STACK][128];
 int nav_stack_ptr = 0;
 
 #define MAX_PAGE_STACK 16
@@ -208,6 +210,52 @@ static int BrowseNavH(void) { return sys_height / 13; }
 static int BrowseNavY(void) { return BrowseFooterY() - sys_height / 60 - BrowseNavH(); }
 static int BrowseListBottom(void) { return BrowseNavY() - 55; }
 
+static int IsCatalogRootURL(const char *url) {
+    return url && url[0] && strcmp(url, servers[current_server_index].url) == 0;
+}
+
+/* "Inicio" solo tiene sentido si lleva a un sitio distinto del que ya
+   estás o del que te llevaría "Atrás". */
+static int HomeButtonUseful(void) {
+    if (nav_stack_ptr == 0) {
+        return !(IsCatalogRootURL(last_loaded_url) && page_stack_ptr == 0 && current_page == 0);
+    }
+    if (nav_stack_ptr == 1 && IsCatalogRootURL(nav_stack[0])) return 0;
+    return 1;
+}
+
+static int PreviousPageAvailable(void) {
+    return current_page > 0 || page_stack_ptr > 0;
+}
+
+static int NextPageAvailable(void) {
+    int entries_per_page = GetCatalogRows();
+    return (current_page + 1) * entries_per_page < entry_count || strlen(next_page_url) > 0;
+}
+
+/* Ruta "Portada > Autores > A". Si no cabe, se recorta por el principio
+   ("... > Autores > A"). Usa la fuente activa para medir. */
+static void BuildBreadcrumb(char *out, size_t out_size, int max_width) {
+    const char *parts[MAX_NAV_STACK + 1];
+    int count = 0;
+    for (int i = 0; i < nav_stack_ptr && i < MAX_NAV_STACK; i++) {
+        if (i == 0 && IsCatalogRootURL(nav_stack[0])) parts[count++] = T("Portada");
+        else parts[count++] = nav_title_stack[i][0] ? nav_title_stack[i] : "...";
+    }
+    if (nav_stack_ptr == 0 && IsCatalogRootURL(last_loaded_url)) parts[count++] = T("Portada");
+    else parts[count++] = current_feed_title[0] ? current_feed_title : last_loaded_url;
+
+    for (int start = 0; start < count; start++) {
+        size_t used = 0;
+        out[0] = '\0';
+        if (start > 0) used += snprintf(out + used, out_size - used, "... > ");
+        for (int i = start; i < count && used < out_size; i++) {
+            used += snprintf(out + used, out_size - used, "%s%s", parts[i], i + 1 < count ? " > " : "");
+        }
+        if (start == count - 1 || StringWidth(out) <= max_width) return;
+    }
+}
+
 static void BrowseNavButtonRect(int index, int *x, int *w) {
     int margin = 20, spacing = 10;
     int bw = (sys_width - margin * 2 - spacing * (BROWSE_NAV_BUTTONS - 1)) / BROWSE_NAV_BUTTONS;
@@ -219,11 +267,13 @@ void DrawButton(int x, int y, int w, int h, const char *text, int style) {
     int bg_color = 0xDDDDDD; 
     int fg_color = 0x000000; 
 
+    int border = 0x000000;
     if (style == 1) { bg_color = 0x555555; fg_color = 0xFFFFFF; } 
     else if (style == 2) { bg_color = 0xCC0000; fg_color = 0xFFFFFF; }
+    else if (style == BUTTON_DISABLED) { bg_color = 0xF2F2F2; fg_color = 0xAAAAAA; border = 0xBBBBBB; }
 
     FillArea(x, y, w, h, bg_color); 
-    DrawRect(x, y, w, h, 0x000000); 
+    DrawRect(x, y, w, h, border); 
     SetTextFont(36, fg_color); 
     DrawTextRect(x, y + (h/2) - 20, w, 40, text, ALIGN_CENTER);
 }
@@ -419,6 +469,15 @@ void LoadStockIcons() {
 
 void UnloadGlobalCover() { 
     if (current_cover_bmp) { free(current_cover_bmp); current_cover_bmp = NULL; } 
+}
+
+/* Guarda el nivel actual antes de entrar en otro (o en una búsqueda). */
+static void PushNavigationLevel(void) {
+    if (nav_stack_ptr >= MAX_NAV_STACK) return;
+    strncpy(nav_stack[nav_stack_ptr], last_loaded_url, MAX_STR_LEN - 1);
+    nav_stack[nav_stack_ptr][MAX_STR_LEN - 1] = '\0';
+    snprintf(nav_title_stack[nav_stack_ptr], sizeof(nav_title_stack[0]), "%s", current_feed_title);
+    nav_stack_ptr++;
 }
 
 void GoBackInHierarchy() {
@@ -852,10 +911,7 @@ void PerformSearch(char *text) {
             return;
         }
 
-        if (nav_stack_ptr < MAX_NAV_STACK) {
-            strncpy(nav_stack[nav_stack_ptr++], last_loaded_url, MAX_STR_LEN - 1);
-            nav_stack[nav_stack_ptr - 1][MAX_STR_LEN - 1] = '\0';
-        }
+        PushNavigationLevel();
         page_stack_ptr = 0;
         current_global_offset = 0;
         return_to_last_page = 0;
@@ -934,7 +990,7 @@ void PerformSearch(char *text) {
         strcpy(final_url, absolute_url);
     }
 
-    if (nav_stack_ptr < MAX_NAV_STACK) strncpy(nav_stack[nav_stack_ptr++], last_loaded_url, MAX_STR_LEN - 1);
+    PushNavigationLevel();
     page_stack_ptr = 0;
     current_global_offset = 0;
     return_to_last_page = 0;
@@ -1642,12 +1698,16 @@ void DrawBrowsingView() {
     /* El título ocupa toda la cabecera; tocarlo vuelve a las opciones del servidor. */
     int title_x = 20, title_w = sys_width - 40;
 
-    SetTextFont(24, top_sub_fg);
-    const char *display_title = (strlen(current_feed_title) > 0) ? current_feed_title : last_loaded_url;
-    DrawTextRect(title_x, (hh / 2) + 5, title_w, 30, display_title, ALIGN_LEFT | DOTS);
+    /* Arriba el servidor; debajo, la ruta hasta la lista actual. */
+    {
+        char breadcrumb[MAX_STR_LEN];
+        SetTextFont(24, top_sub_fg);
+        BuildBreadcrumb(breadcrumb, sizeof(breadcrumb), title_w);
+        DrawTextRect(title_x, (hh / 2) + 5, title_w, 30, breadcrumb, ALIGN_LEFT | DOTS);
+    }
 
     SetTextFont(36, top_fg); 
-    DrawTextRect(title_x, hh / 6, title_w, 40, T("Catálogo"), ALIGN_LEFT | DOTS);
+    DrawTextRect(title_x, hh / 6, title_w, 40, servers[current_server_index].name, ALIGN_LEFT | DOTS);
 
     /* Barra de navegación abajo, con botones grandes. */
     {
@@ -1656,7 +1716,8 @@ void DrawBrowsingView() {
         for (int i = 0; i < BROWSE_NAV_BUTTONS; i++) {
             int bx, bw;
             BrowseNavButtonRect(i, &bx, &bw);
-            DrawButton(bx, nav_y, bw, nav_h, T(labels[i]), 0);
+            int disabled = (i == 2 && !HomeButtonUseful());
+            DrawButton(bx, nav_y, bw, nav_h, T(labels[i]), disabled ? BUTTON_DISABLED : 0);
         }
     }
 
@@ -1763,9 +1824,14 @@ void DrawBrowsingView() {
         SetTextFont(24, 0x555555); 
         DrawTextRect(0, BrowseNavY() - 45, sys_width, 30, page_txt, ALIGN_CENTER);
         
-        if (current_page > 0 || page_stack_ptr > 0) DrawButton(20, footer_y, sys_width/2 - 30, row_h, T("<< ANTERIOR"), 0);
-        if (end < entry_count) DrawButton(sys_width/2 + 10, footer_y, sys_width/2 - 30, row_h, T("SIGUIENTE >>"), 0);
-        else if (strlen(next_page_url) > 0) DrawButton(sys_width/2 + 10, footer_y, sys_width/2 - 30, row_h, T("MÁS >>"), 0);
+        /* Siempre visibles; en gris cuando no hay página a la que ir. */
+        DrawButton(20, footer_y, sys_width/2 - 30, row_h, T("<< ANTERIOR"),
+                   PreviousPageAvailable() ? 0 : BUTTON_DISABLED);
+        if (end >= entry_count && strlen(next_page_url) > 0)
+            DrawButton(sys_width/2 + 10, footer_y, sys_width/2 - 30, row_h, T("MÁS >>"), 0);
+        else
+            DrawButton(sys_width/2 + 10, footer_y, sys_width/2 - 30, row_h, T("SIGUIENTE >>"),
+                       NextPageAvailable() ? 0 : BUTTON_DISABLED);
     }
 }
 
@@ -1837,6 +1903,7 @@ void HandleBrowsingTouch(int x, int y) {
             int bx, bw;
             BrowseNavButtonRect(i, &bx, &bw);
             if (x < bx || x > bx + bw) continue;
+            if (i == 2 && !HomeButtonUseful()) return;   /* Inicio en gris */
             FlashArea(bx, nav_y, bw, nav_h);
             switch (i) {
                 case 0: /* Atrás */
@@ -1857,6 +1924,8 @@ void HandleBrowsingTouch(int x, int y) {
     }
     
     if (y >= footer_y) {
+        if (x < sys_width / 2 && !PreviousPageAvailable()) return;
+        if (x >= sys_width / 2 && !NextPageAvailable()) return;
         if (x < sys_width / 2) { 
             FlashArea(20, footer_y, sys_width/2 - 30, row_h);
             if (current_page > 0) { 
@@ -1893,7 +1962,7 @@ void HandleBrowsingTouch(int x, int y) {
             FlashArea(0, ly, sys_width, dynamic_row_h);
 
             if (strlen(e->nav_url) > 0 && e->is_book == 0) {
-                if (nav_stack_ptr < MAX_NAV_STACK) strncpy(nav_stack[nav_stack_ptr++], last_loaded_url, MAX_STR_LEN - 1);
+                PushNavigationLevel();
                 page_stack_ptr = 0; current_global_offset = 0; return_to_last_page = 0; LoadCatalog(e->nav_url);
             } else if (e->is_book) {
                 selected_entry_index = i; UnloadGlobalCover();
