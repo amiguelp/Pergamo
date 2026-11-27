@@ -79,6 +79,7 @@ void ManageImageCache();
 void JIT_DecodePageThumbnails(); 
 static int KnownListTotal(void);
 static void OpenStatsNow(void);
+static void StatsChangePage(int delta);
 static void CountCurrentList(void);
 static int EbiblioActionCount(const OPDSEntry *entry);
 static int EbiblioHasBorrowAction(const OPDSEntry *entry);
@@ -1379,6 +1380,8 @@ void HandleMainMenuTouch(int x, int y) {
 
 static ReadingStats reading_stats;
 static int reading_stats_ok = 0;
+static int stats_page = 0;          /* página del texto de estadísticas */
+static int stats_page_count = 1;
 static char reading_stats_error[MAX_STR_LEN];
 
 /* Número con separador de miles (punto en español, coma en inglés). */
@@ -1404,6 +1407,7 @@ static void LoadReadingStats(void) {
 }
 
 static void OpenStatsNow(void) {
+    stats_page = 0;
     LoadReadingStats();
     current_state = STATE_STATS;
     Repaint();
@@ -1415,6 +1419,42 @@ static void StatsButtons(int *update_y, int *back_y, int *row_h, int *margin) {
     int gap = sys_height / 60;
     *back_y = sys_height - *row_h - gap * 2;
     *update_y = *back_y - *row_h - gap;
+}
+
+/* Fila de paginación (Anterior / Siguiente), encima de "Actualizar páginas". */
+static int StatsPagerY(void) {
+    int margin, row_h, update_y, back_y;
+    StatsButtons(&update_y, &back_y, &row_h, &margin);
+    return update_y - row_h - sys_height / 60;
+}
+
+/* Dibuja las líneas que caben en la página "page" del área dada y devuelve
+   cuántas páginas hacen falta en total. Con draw = 0 solo cuenta. */
+static int StatsTextPages(char *text, int x, int y, int w, int h, int page, int draw) {
+    char *lines[200];
+    int count = 0;
+    for (char *p = text; p && *p && count < 200;) {
+        lines[count++] = p;
+        char *nl = strchr(p, '\n');
+        if (!nl) break;
+        *nl = '\0';
+        p = nl + 1;
+    }
+    int pages = 1, used = 0;
+    for (int i = 0; i < count; i++) {
+        int lh = TextRectHeight(w, lines[i][0] ? lines[i] : " ", ALIGN_LEFT);
+        if (lh <= 0) lh = 30;
+        if (used > 0 && used + lh > h) {          /* no cabe: página siguiente */
+            pages++;
+            used = 0;
+            if (!lines[i][0]) continue;           /* no empezar página con una línea vacía */
+        }
+        if (draw && pages - 1 == page)
+            DrawTextRect(x, y + used, w, lh, lines[i], ALIGN_LEFT);
+        used += lh;
+    }
+    for (int i = 0; i + 1 < count; i++) lines[i][strlen(lines[i])] = '\n';   /* restaurar */
+    return pages;
 }
 
 void DrawStats() {
@@ -1468,9 +1508,13 @@ void DrawStats() {
 #undef ADD
     int body_y = hh + gap * 2;
     int note_h = 110;
+    int pager_y = StatsPagerY();
+    int body_h = pager_y - body_y - note_h - gap;
     SetTextFont(26, 0x000000);
-    DrawTextRect(margin, body_y, sys_width - margin * 2, update_y - body_y - note_h - gap,
-                 text, ALIGN_LEFT | DOTS);
+    stats_page_count = StatsTextPages(text, margin, body_y, sys_width - margin * 2, body_h, 0, 0);
+    if (stats_page >= stats_page_count) stats_page = stats_page_count - 1;
+    if (stats_page < 0) stats_page = 0;
+    StatsTextPages(text, margin, body_y, sys_width - margin * 2, body_h, stats_page, 1);
 
     if (reading_stats_ok) {
         const ReadingStats *s = &reading_stats;
@@ -1484,8 +1528,19 @@ void DrawStats() {
                      s->pending_real_pages);
         }
         SetTextFont(22, 0x555555);
-        DrawTextRect(margin, update_y - note_h - gap / 2, sys_width - margin * 2, note_h, note, ALIGN_LEFT);
+        DrawTextRect(margin, pager_y - note_h - gap / 2, sys_width - margin * 2, note_h, note, ALIGN_LEFT);
     }
+
+    /* Paginación: Anterior | Página x de y | Siguiente */
+    int half = (sys_width - margin * 4 - gap) / 3;
+    DrawButton(margin * 2, pager_y, half, row_h, T("<< ANTERIOR"), stats_page > 0 ? 0 : BUTTON_DISABLED);
+    DrawButton(sys_width - margin * 2 - half, pager_y, half, row_h, T("SIGUIENTE >>"),
+               stats_page + 1 < stats_page_count ? 0 : BUTTON_DISABLED);
+    char page_text[64];
+    snprintf(page_text, sizeof(page_text), T("Página %d de %d"), stats_page + 1, stats_page_count);
+    SetTextFont(24, 0x555555);
+    DrawTextRect(margin * 2 + half, pager_y + row_h / 2 - 15, sys_width - margin * 4 - half * 2, 30,
+                 page_text, ALIGN_CENTER);
     DrawButton(margin * 2, update_y, sys_width - margin * 4, row_h, T("Actualizar páginas"),
                reading_stats_ok && reading_stats.pending_real_pages > 0 ? 0 : BUTTON_DISABLED);
     DrawButton(margin * 2, back_y, sys_width - margin * 4, row_h, T("Volver"), 1);
@@ -1512,6 +1567,7 @@ static void UpdateRealPagesNow(void) {
     int result = StatsUpdatePages(StatsUpdateProgress, &report, error, sizeof(error));
     CloseProgressbar();
     LoadReadingStats();
+    stats_page = 0;
     if (result != 0) {
         Message(ICON_ERROR, T("Actualizar páginas"), error[0] ? error : T("No se pudo completar la operación."), 5000);
         Repaint();
@@ -1524,10 +1580,24 @@ static void UpdateRealPagesNow(void) {
     Dialog(ICON_INFORMATION, T("Actualizar páginas"), text, "OK", NULL, CloseStatsSummary);
 }
 
+static void StatsChangePage(int delta) {
+    int page = stats_page + delta;
+    if (page < 0 || page >= stats_page_count) return;
+    stats_page = page;
+    Repaint();
+}
+
 void HandleStatsTouch(int x, int y) {
     int margin, row_h, update_y, back_y;
     StatsButtons(&update_y, &back_y, &row_h, &margin);
     if (x < margin * 2 || x > sys_width - margin * 2) return;
+    int pager_y = StatsPagerY();
+    if (y >= pager_y && y <= pager_y + row_h) {
+        int half = (sys_width - margin * 4 - sys_height / 60) / 3;
+        if (x <= margin * 2 + half) StatsChangePage(-1);
+        else if (x >= sys_width - margin * 2 - half) StatsChangePage(1);
+        return;
+    }
     if (y >= back_y && y <= back_y + row_h) {
         FlashArea(margin * 2, back_y, sys_width - margin * 4, row_h);
         current_state = STATE_MAIN_MENU;
@@ -2255,6 +2325,11 @@ void DrawBrowsingView() {
 }
 
 void HandleHardwareButtons(int key) {
+    if (current_state == STATE_STATS) {
+        if (key == IV_KEY_NEXT || key == 0x207) StatsChangePage(1);
+        else if (key == IV_KEY_PREV || key == 0x206) StatsChangePage(-1);
+        return;
+    }
     if (current_state == STATE_BOOK_DETAILS) {
         int scroll_amount = 150, moved = 0;
         if (key == IV_KEY_NEXT || key == 0x207) { summary_scroll_y += scroll_amount; moved = 1; } 

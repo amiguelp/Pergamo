@@ -521,6 +521,8 @@ static const Translation translations[] = {
      "Looking up the real pages..."},
     {"Libros revisados: %d\nPáginas exactas: %d\nEstimadas por el texto: %d\nDe Open Library: %d\nNo encontradas: %d\nSin conexión (se reintentará): %d",
      "Books checked: %d\nExact pages: %d\nEstimated from the text: %d\nFrom Open Library: %d\nNot found: %d\nNo connection (will retry): %d"},
+    {"Página %d de %d",
+     "Page %d of %d"},
 };
 
 #define I18N_GLOBAL_CONFIG "/mnt/ext1/system/config/global.cfg"
