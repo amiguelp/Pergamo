@@ -214,18 +214,11 @@ static int BrowseNavH(void) { return sys_height / 13; }
 static int BrowseNavY(void) { return BrowseFooterY() - sys_height / 60 - BrowseNavH(); }
 static int BrowseListBottom(void) { return BrowseNavY() - 55; }
 
-static int IsCatalogRootURL(const char *url) {
-    return url && url[0] && strcmp(url, servers[current_server_index].url) == 0;
-}
-
-/* "Inicio" solo tiene sentido si lleva a un sitio distinto del que ya
-   estás o del que te llevaría "Atrás". */
+/* "Inicio" vuelve a la pantalla del servidor (Explorar catálogo, Editar
+   datos...). En el primer nivel del catálogo "Atrás" ya lleva ahí, así que
+   entonces Inicio aparece en gris. */
 static int HomeButtonUseful(void) {
-    if (nav_stack_ptr == 0) {
-        return !(IsCatalogRootURL(last_loaded_url) && page_stack_ptr == 0 && current_page == 0);
-    }
-    if (nav_stack_ptr == 1 && IsCatalogRootURL(nav_stack[0])) return 0;
-    return 1;
+    return nav_stack_ptr > 0;
 }
 
 static int PreviousPageAvailable(void) {
@@ -1926,9 +1919,10 @@ void HandleBrowsingTouch(int x, int y) {
                     memset(search_input_buffer, 0, sizeof(search_input_buffer));
                     OpenKeyboard(T("Buscar en el catálogo:"), search_input_buffer, 255, 0, PerformSearch);
                     break;
-                case 2: /* Inicio */
+                case 2: /* Inicio: pantalla del servidor */
                     nav_stack_ptr = 0; current_level_label[0] = '\0'; page_stack_ptr = 0; current_global_offset = 0; current_page = 0;
-                    LoadCatalog(servers[current_server_index].url);
+                    current_state = STATE_SERVER_OPTIONS;
+                    Repaint();
                     break;
             }
             return;
