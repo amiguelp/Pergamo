@@ -1388,7 +1388,7 @@ void HandleSettingsTouch(int x, int y) {
         case SETTINGS_ABOUT: {
             static char about[768];
             snprintf(about, sizeof(about),
-                     T("Pergamo %s\n\nCliente OPDS para lectores PocketBook: explora catálogos (Calibre-Web, COPS, Proyecto Gutenberg...) y eBiblio Madrid, y descarga libros directamente al lector.\n\nBasado en OPDS Client.\n\ngithub.com/amiguelp/Pergamo"),
+                     T("Pergamo %s\n\nCliente OPDS para lectores PocketBook: explora catálogos (Calibre-Web, COPS, Proyecto Gutenberg...) y eBiblio Madrid, y descarga libros directamente al lector.\n\nBasado en OPDS Client:\ngithub.com/j2robin/Pocketbook-OPDSClient\n\ngithub.com/amiguelp/Pergamo"),
                      PERGAMO_VERSION);
             Dialog(ICON_INFORMATION, T("Acerca de"), about, "OK", NULL, CloseAboutDialog);
             break;

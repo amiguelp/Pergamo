@@ -1,6 +1,7 @@
 # Pergamo
 
-> Pergamo is built from **OPDS Client**, an OPDS catalog client for PocketBook
+> Pergamo is built from [**OPDS Client**](https://github.com/j2robin/Pocketbook-OPDSClient)
+> by j2robin, an OPDS catalog client for PocketBook
 > e-readers, and extends it with eBiblio Madrid support, a settings screen,
 > Spanish/English translations, encrypted credentials and automatic updates.
 
