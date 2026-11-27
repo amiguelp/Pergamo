@@ -214,13 +214,6 @@ static int BrowseNavH(void) { return sys_height / 13; }
 static int BrowseNavY(void) { return BrowseFooterY() - sys_height / 60 - BrowseNavH(); }
 static int BrowseListBottom(void) { return BrowseNavY() - 55; }
 
-/* "Inicio" vuelve a la pantalla del servidor (Explorar catálogo, Editar
-   datos...). En el primer nivel del catálogo "Atrás" ya lleva ahí, así que
-   entonces Inicio aparece en gris. */
-static int HomeButtonUseful(void) {
-    return nav_stack_ptr > 0;
-}
-
 static int PreviousPageAvailable(void) {
     return current_page > 0 || page_stack_ptr > 0;
 }
@@ -1722,8 +1715,7 @@ void DrawBrowsingView() {
         for (int i = 0; i < BROWSE_NAV_BUTTONS; i++) {
             int bx, bw;
             BrowseNavButtonRect(i, &bx, &bw);
-            int disabled = (i == 2 && !HomeButtonUseful());
-            DrawButton(bx, nav_y, bw, nav_h, T(labels[i]), disabled ? BUTTON_DISABLED : 0);
+            DrawButton(bx, nav_y, bw, nav_h, T(labels[i]), 0);
         }
     }
 
@@ -1909,7 +1901,6 @@ void HandleBrowsingTouch(int x, int y) {
             int bx, bw;
             BrowseNavButtonRect(i, &bx, &bw);
             if (x < bx || x > bx + bw) continue;
-            if (i == 2 && !HomeButtonUseful()) return;   /* Inicio en gris */
             FlashArea(bx, nav_y, bw, nav_h);
             switch (i) {
                 case 0: /* Atrás */
