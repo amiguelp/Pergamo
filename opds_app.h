@@ -29,7 +29,7 @@
 
 /* Estilo de DrawButton para un botón que ahora no hace nada (gris). */
 #define BUTTON_DISABLED 3
-#define PERGAMO_VERSION "1.4"
+#define PERGAMO_VERSION "1.5"
 #define DEBUG_LOG_TRIGGER APP_ROOT_DIR "LOGTRIGGER.TXT"
 #define APP_USER_AGENT "PocketBook-OPDS-Expert/1.0 (PocketBook Era; Linux)"
 

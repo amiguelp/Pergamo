@@ -35,6 +35,10 @@ ibitmap *list_thumbs[MAX_ENTRIES] = {NULL};
 char nav_stack[MAX_NAV_STACK][MAX_STR_LEN];
 /* Título de cada nivel guardado, para mostrar la ruta en la cabecera. */
 static char nav_title_stack[MAX_NAV_STACK][128];
+/* Nombre de la lista actual tal como se eligió (el título de la entrada
+   tocada, o "Búsqueda: ..."). Muchos servidores, como Calibre-Web, ponen el
+   mismo título a todas sus listas, así que no sirve el título del feed. */
+static char current_level_label[128] = {0};
 int nav_stack_ptr = 0;
 
 #define MAX_PAGE_STACK 16
@@ -239,10 +243,10 @@ static void BuildBreadcrumb(char *out, size_t out_size, int max_width) {
     const char *parts[MAX_NAV_STACK + 1];
     int count = 0;
     for (int i = 0; i < nav_stack_ptr && i < MAX_NAV_STACK; i++) {
-        if (i == 0 && IsCatalogRootURL(nav_stack[0])) parts[count++] = T("Portada");
-        else parts[count++] = nav_title_stack[i][0] ? nav_title_stack[i] : "...";
+        parts[count++] = nav_title_stack[i][0] ? nav_title_stack[i] : "...";
     }
-    if (nav_stack_ptr == 0 && IsCatalogRootURL(last_loaded_url)) parts[count++] = T("Portada");
+    if (current_level_label[0]) parts[count++] = current_level_label;
+    else if (nav_stack_ptr == 0) parts[count++] = T("Portada");
     else parts[count++] = current_feed_title[0] ? current_feed_title : last_loaded_url;
 
     for (int start = 0; start < count; start++) {
@@ -471,18 +475,24 @@ void UnloadGlobalCover() {
     if (current_cover_bmp) { free(current_cover_bmp); current_cover_bmp = NULL; } 
 }
 
-/* Guarda el nivel actual antes de entrar en otro (o en una búsqueda). */
-static void PushNavigationLevel(void) {
-    if (nav_stack_ptr >= MAX_NAV_STACK) return;
-    strncpy(nav_stack[nav_stack_ptr], last_loaded_url, MAX_STR_LEN - 1);
-    nav_stack[nav_stack_ptr][MAX_STR_LEN - 1] = '\0';
-    snprintf(nav_title_stack[nav_stack_ptr], sizeof(nav_title_stack[0]), "%s", current_feed_title);
-    nav_stack_ptr++;
+/* Guarda el nivel actual antes de entrar en otro (o en una búsqueda);
+   new_label es el nombre con el que se mostrará el nivel nuevo. */
+static void PushNavigationLevel(const char *new_label) {
+    if (nav_stack_ptr < MAX_NAV_STACK) {
+        strncpy(nav_stack[nav_stack_ptr], last_loaded_url, MAX_STR_LEN - 1);
+        nav_stack[nav_stack_ptr][MAX_STR_LEN - 1] = '\0';
+        snprintf(nav_title_stack[nav_stack_ptr], sizeof(nav_title_stack[0]), "%s",
+                 current_level_label[0] ? current_level_label
+                 : nav_stack_ptr == 0 ? T("Portada") : current_feed_title);
+        nav_stack_ptr++;
+    }
+    snprintf(current_level_label, sizeof(current_level_label), "%s", new_label ? new_label : "");
 }
 
 void GoBackInHierarchy() {
     if (nav_stack_ptr > 0) {
         nav_stack_ptr--; 
+        snprintf(current_level_label, sizeof(current_level_label), "%s", nav_title_stack[nav_stack_ptr]);
         page_stack_ptr = 0;      
         current_global_offset = 0;
         return_to_last_page = 0;  
@@ -872,6 +882,8 @@ void URLEncode(const char *src, char *dest) {
 static char search_input_buffer[256] = {0};
 
 void PerformSearch(char *text) {
+    char search_label[128];
+    snprintf(search_label, sizeof(search_label), T("Búsqueda: %s"), text ? text : "");
     if (!text || strlen(text) == 0) { Repaint(); return; }
 
     if (strlen(current_search_url) == 0) {
@@ -911,7 +923,7 @@ void PerformSearch(char *text) {
             return;
         }
 
-        PushNavigationLevel();
+        PushNavigationLevel(search_label);
         page_stack_ptr = 0;
         current_global_offset = 0;
         return_to_last_page = 0;
@@ -990,7 +1002,7 @@ void PerformSearch(char *text) {
         strcpy(final_url, absolute_url);
     }
 
-    PushNavigationLevel();
+    PushNavigationLevel(search_label);
     page_stack_ptr = 0;
     current_global_offset = 0;
     return_to_last_page = 0;
@@ -1137,7 +1149,7 @@ static void OpenEditServerFormNow(void) {
 }
 
 void DrawMainMenu() {
-    SetPanelType(0); nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0;
+    SetPanelType(0); nav_stack_ptr = 0; current_level_label[0] = '\0'; page_stack_ptr = 0; current_global_offset = 0;
     int margin = sys_width / 20, gap = sys_height / 60, hh = sys_height / 14, row_h = sys_height / 12;
     SetTextFont(48, 0x000000);
     DrawTextRect(0, gap, sys_width, 60, T("Biblioteca OPDS"), ALIGN_CENTER);
@@ -1551,7 +1563,7 @@ void HandleServerOptionsTouch(int x, int y) {
 
     if (y >= top_y && y <= top_y + row_h) {
         FlashArea(bx, top_y, bw, row_h);
-        nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0; current_page = 0; 
+        nav_stack_ptr = 0; current_level_label[0] = '\0'; page_stack_ptr = 0; current_global_offset = 0; current_page = 0; 
         LoadCatalog(servers[current_server_index].url); return; 
     }
     int is_ebiblio = IsEbiblioURL(servers[current_server_index].url);
@@ -1582,6 +1594,7 @@ void HandleServerOptionsTouch(int x, int y) {
                 Repaint();
                 return;
             }
+            snprintf(current_level_label, sizeof(current_level_label), "%s", T("Mis préstamos y reservas"));
             LoadCatalog(account_url);
             return;
         }
@@ -1893,7 +1906,7 @@ void HandleBrowsingTouch(int x, int y) {
     if (y <= hh) {
         /* Tocar el título vuelve a las opciones del servidor. */
         FlashArea(0, 0, sys_width, hh);
-        nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0; current_state = STATE_SERVER_OPTIONS; Repaint();
+        nav_stack_ptr = 0; current_level_label[0] = '\0'; page_stack_ptr = 0; current_global_offset = 0; current_state = STATE_SERVER_OPTIONS; Repaint();
         return;
     }
 
@@ -1914,7 +1927,7 @@ void HandleBrowsingTouch(int x, int y) {
                     OpenKeyboard(T("Buscar en el catálogo:"), search_input_buffer, 255, 0, PerformSearch);
                     break;
                 case 2: /* Inicio */
-                    nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0; current_page = 0;
+                    nav_stack_ptr = 0; current_level_label[0] = '\0'; page_stack_ptr = 0; current_global_offset = 0; current_page = 0;
                     LoadCatalog(servers[current_server_index].url);
                     break;
             }
@@ -1962,7 +1975,7 @@ void HandleBrowsingTouch(int x, int y) {
             FlashArea(0, ly, sys_width, dynamic_row_h);
 
             if (strlen(e->nav_url) > 0 && e->is_book == 0) {
-                PushNavigationLevel();
+                PushNavigationLevel(e->title);
                 page_stack_ptr = 0; current_global_offset = 0; return_to_last_page = 0; LoadCatalog(e->nav_url);
             } else if (e->is_book) {
                 selected_entry_index = i; UnloadGlobalCover();

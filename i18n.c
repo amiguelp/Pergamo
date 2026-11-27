@@ -449,6 +449,8 @@ static const Translation translations[] = {
      "Check on launch: %s"},
     {"Portada",
      "Home"},
+    {"Búsqueda: %s",
+     "Search: %s"},
 };
 
 #define I18N_GLOBAL_CONFIG "/mnt/ext1/system/config/global.cfg"
