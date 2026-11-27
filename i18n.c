@@ -1,6 +1,7 @@
 /* Traducciones de la interfaz. Clave: texto en español; valor: inglés. */
 #include "i18n.h"
 #include "opds_app.h"
+#include "settings_store.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -344,8 +345,8 @@ static const Translation translations[] = {
      "The debug log setting could not be changed."},
     {"El registro se guardará en applications/Pergamo/opds_client.log",
      "The log will be saved to applications/Pergamo/opds_client.log"},
-    {"Pergamo %s\n\nCliente OPDS para lectores PocketBook: explora catálogos (Calibre-Web, COPS, Proyecto Gutenberg...) y eBiblio Madrid, y descarga libros directamente al lector.\n\ngithub.com/amiguelp/Pergamo",
-     "Pergamo %s\n\nOPDS client for PocketBook readers: browse catalogs (Calibre-Web, COPS, Project Gutenberg...) and eBiblio Madrid, and download books straight to the reader.\n\ngithub.com/amiguelp/Pergamo"},
+    {"Pergamo %s\n\nCliente OPDS para lectores PocketBook: explora catálogos (Calibre-Web, COPS, Proyecto Gutenberg...) y eBiblio Madrid, y descarga libros directamente al lector.\n\nBasado en OPDS Client.\n\ngithub.com/amiguelp/Pergamo",
+     "Pergamo %s\n\nOPDS client for PocketBook readers: browse catalogs (Calibre-Web, COPS, Project Gutenberg...) and eBiblio Madrid, and download books straight to the reader.\n\nBased on OPDS Client.\n\ngithub.com/amiguelp/Pergamo"},
     {"CANCELAR",
      "CANCEL"},
     {"GUARDAR",
@@ -404,9 +405,50 @@ static const Translation translations[] = {
      "The saved password for %s could not be read. Please enter it again."},
     {"PIN para las contraseñas: %s",
      "Password PIN: %s"},
+    {"GitHub respondió con HTTP %ld.",
+     "GitHub responded with HTTP %ld."},
+    {"No se pudo conectar con GitHub. Comprueba la conexión Wi-Fi.",
+     "Could not connect to GitHub. Check your Wi-Fi connection."},
+    {"La conexión con GitHub agotó el tiempo de espera.",
+     "The connection to GitHub timed out."},
+    {"La versión publicada no es válida.",
+     "The published version is not valid."},
+    {"La huella publicada no es válida.",
+     "The published checksum is not valid."},
+    {"No se pudo guardar la descarga (¿memoria llena?).",
+     "The download could not be saved (storage full?)."},
+    {"No se pudo leer la descarga.",
+     "The download could not be read."},
+    {"La descarga no coincide con la versión publicada. No se ha cambiado nada; inténtalo más tarde.",
+     "The download doesn't match the published version. Nothing was changed; try again later."},
+    {"No se pudo sustituir la aplicación.",
+     "The application could not be replaced."},
+    {"Descargando Pergamo...",
+     "Downloading Pergamo..."},
+    {"Actualizando",
+     "Updating"},
+    {"Actualización",
+     "Update"},
+    {"Se ha instalado la versión %s. Pergamo se cerrará; vuelve a abrirla para usar la nueva versión.",
+     "Version %s has been installed. Pergamo will close; open it again to use the new version."},
+    {"Pergamo actualizado",
+     "Pergamo updated"},
+    {"Tienes la última versión (%s).",
+     "You have the latest version (%s)."},
+    {"Hay una versión nueva de Pergamo: %s (tienes la %s). ¿Actualizar ahora?",
+     "A new version of Pergamo is available: %s (you have %s). Update now?"},
+    {"Actualización disponible",
+     "Update available"},
+    {"Actualizar",
+     "Update"},
+    {"Más tarde",
+     "Later"},
+    {"Buscar actualizaciones (v%s)",
+     "Check for updates (v%s)"},
+    {"Buscar al abrir: %s",
+     "Check on launch: %s"},
 };
 
-#define I18N_SETTINGS_FILE APP_ROOT_DIR "pergamo_settings.cfg"
 #define I18N_GLOBAL_CONFIG "/mnt/ext1/system/config/global.cfg"
 
 /* "Automático" sigue el idioma del sistema (global.cfg): español si empieza
@@ -449,26 +491,14 @@ const char *LanguageSettingName(int setting) {
 }
 
 void LoadLanguageSetting(void) {
-    FILE *f = fopen(I18N_SETTINGS_FILE, "r");
-    app_language_setting = LANG_AUTO;
-    if (f) {
-        char line[128];
-        while (fgets(line, sizeof(line), f)) {
-            if (strncmp(line, "language=", 9) == 0) {
-                if (strncmp(line + 9, "es", 2) == 0) app_language_setting = LANG_ES;
-                else if (strncmp(line + 9, "en", 2) == 0) app_language_setting = LANG_EN;
-            }
-        }
-        fclose(f);
-    }
+    const char *value = SettingGet("language", "auto");
+    app_language_setting = strcmp(value, "es") == 0 ? LANG_ES
+                         : strcmp(value, "en") == 0 ? LANG_EN : LANG_AUTO;
     resolved_language = -1;
 }
 
 void SetLanguageSetting(int setting) {
     app_language_setting = setting;
     resolved_language = -1;
-    FILE *f = fopen(I18N_SETTINGS_FILE, "w");
-    if (!f) return;
-    fprintf(f, "language=%s\n", setting == LANG_ES ? "es" : setting == LANG_EN ? "en" : "auto");
-    fclose(f);
+    SettingSet("language", setting == LANG_ES ? "es" : setting == LANG_EN ? "en" : "auto");
 }

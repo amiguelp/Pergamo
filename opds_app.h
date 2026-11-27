@@ -27,7 +27,7 @@
 #define FOLDER_ICON IMAGES_DIR "folder.png"
 #define BOOK_ICON IMAGES_DIR "book.png"
 
-#define PERGAMO_VERSION "1.1"
+#define PERGAMO_VERSION "1.2"
 #define DEBUG_LOG_TRIGGER APP_ROOT_DIR "LOGTRIGGER.TXT"
 #define APP_USER_AGENT "PocketBook-OPDS-Expert/1.0 (PocketBook Era; Linux)"
 
@@ -146,6 +146,7 @@ void DrawBookDetails();
 void HandleBookDetailsTouch(int x, int y);
 void DrawSettings();
 void HandleSettingsTouch(int x, int y);
+void AutoCheckForUpdates(void);
 void DrawUninstallConfirmation();
 void HandleUninstallConfirmationTouch(int x, int y);
 void AskRestartAfterUninstall(int cleanup_complete);

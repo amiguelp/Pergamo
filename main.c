@@ -1,5 +1,6 @@
 #include "opds_app.h"
 #include "secrets.h"
+#include "updater.h"
 #include "launcher_icon.h"
 #include <inkview.h>
 #include <errno.h>
@@ -186,7 +187,11 @@ static void ConfigureLauncherIcon(void) {
         Dialog(ICON_QUESTION, T("Actualizar el icono"),
                T("El launcher puede conservar el menú anterior en caché. Reinicia el lector para que cargue el nuevo icono. ¿Reiniciar ahora?"),
                T("Reiniciar"), T("Después"), RestartAfterFirstIconSetup);
+        return;
     }
+
+    /* Comprobar si hay una versión nueva (como mucho una vez al día). */
+    SetHardTimer("PergamoUpdateCheck", AutoCheckForUpdates, 1500);
 }
 
 void AskRestartAfterUninstall(int cleanup_complete) {
@@ -443,6 +448,7 @@ static int main_handler(int event, int a, int b) {
             }
             LogDebug("--- App Started ---");
             LoadLanguageSetting();
+            UpdateCleanupPreviousVersion();
 
             LoadServers();
 

@@ -1,5 +1,8 @@
 #include "opds_app.h"
 #include "secrets.h"
+#include "settings_store.h"
+#include "updater.h"
+#include <time.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -1147,11 +1150,93 @@ void HandleMainMenuTouch(int x, int y) {
     }
 }
 
+// --- Actualizaciones ---------------------------------------------------------
+
+static char update_remote_version[32];
+
+static void UpdateProgress(int percent) {
+    UpdateProgressbar(T("Descargando Pergamo..."), percent);
+}
+
+static void CloseAfterUpdate(int button) {
+    (void)button;
+    CloseApp();
+}
+
+static void InstallUpdateNow(int button) {
+    if (button != 1) { Repaint(); return; }
+    if (EnsureNetwork() != 0) { Repaint(); return; }
+    char error[MAX_STR_LEN] = {0};
+    OpenProgressbar(ICON_INFORMATION, T("Actualizando"), T("Descargando Pergamo..."), 0, NULL);
+    int result = UpdateInstall(UpdateProgress, error, sizeof(error));
+    CloseProgressbar();
+    if (result != 0) {
+        Message(ICON_ERROR, T("Actualización"), error[0] ? error : T("No se pudo completar la operación."), 5000);
+        Repaint();
+        return;
+    }
+    static char text[512];
+    snprintf(text, sizeof(text),
+             T("Se ha instalado la versión %s. Pergamo se cerrará; vuelve a abrirla para usar la nueva versión."),
+             update_remote_version);
+    Dialog(ICON_INFORMATION, T("Pergamo actualizado"), text, "OK", NULL, CloseAfterUpdate);
+}
+
+/* interactive = 1: desde Configuración (conecta la Wi-Fi y avisa de todo).
+   interactive = 0: al abrir la app (solo si ya hay Wi-Fi y sin molestar). */
+static void CheckForUpdates(int interactive) {
+    if (interactive) {
+        if (EnsureNetwork() != 0) { Repaint(); return; }
+    } else if (!(QueryNetwork() & NET_CONNECTED)) {
+        return;
+    }
+    char error[MAX_STR_LEN] = {0};
+    if (interactive) ShowHourglass();
+    int result = UpdateCheck(update_remote_version, sizeof(update_remote_version),
+                             error, sizeof(error));
+    if (interactive) HideHourglass();
+    if (result >= 0) SettingSetLong("last_update_check", (long)time(NULL));
+
+    if (result < 0) {
+        if (interactive) {
+            Message(ICON_ERROR, T("Actualización"), error[0] ? error : T("No se pudo completar la operación."), 5000);
+            Repaint();
+        }
+        return;
+    }
+    if (result == 0) {
+        if (interactive) {
+            char text[256];
+            snprintf(text, sizeof(text), T("Tienes la última versión (%s)."), PERGAMO_VERSION);
+            Message(ICON_INFORMATION, T("Actualización"), text, 3000);
+            Repaint();
+        }
+        return;
+    }
+    static char text[512];
+    snprintf(text, sizeof(text),
+             T("Hay una versión nueva de Pergamo: %s (tienes la %s). ¿Actualizar ahora?"),
+             update_remote_version, PERGAMO_VERSION);
+    Dialog(ICON_QUESTION, T("Actualización disponible"), text,
+           T("Actualizar"), T("Más tarde"), InstallUpdateNow);
+}
+
+void AutoCheckForUpdates(void) {
+    if (!SettingGetLong("auto_update_check", 1)) return;
+    if (current_state != STATE_MAIN_MENU) return;
+    long last = SettingGetLong("last_update_check", 0);
+    long now = (long)time(NULL);
+    if (now - last >= 0 && now - last < 24L * 3600) return;
+    CheckForUpdates(0);
+}
+
 // --- Configuración ---------------------------------------------------------
 
 enum {
     SETTINGS_LANGUAGE,
     SETTINGS_PIN,
+    SETTINGS_CHECK_UPDATES,
+    SETTINGS_AUTO_UPDATES,
     SETTINGS_DEBUG_LOG,
     SETTINGS_CLEAR_CACHE,
     SETTINGS_ABOUT,
@@ -1163,12 +1248,19 @@ static int DebugLogEnabled(void) {
     return access(DEBUG_LOG_TRIGGER, F_OK) == 0;
 }
 
+static int SettingsBackY(void) {
+    return sys_height - sys_height / 12 - (sys_height / 60) * 3;
+}
+
+/* Las filas se ajustan para que todas las opciones quepan sobre "Volver". */
 static void SettingsGeometry(int *margin, int *gap, int *hh, int *row_h, int *top) {
     *margin = sys_width / 20;
-    *gap = sys_height / 60;
+    *gap = sys_height / 80;
     *hh = sys_height / 14;
-    *row_h = sys_height / 12;
     *top = *hh + *gap * 2;
+    int available = SettingsBackY() - *gap * 2 - *top;
+    *row_h = available / SETTINGS_ITEM_COUNT - *gap;
+    if (*row_h > sys_height / 12) *row_h = sys_height / 12;
 }
 
 void DrawSettings() {
@@ -1193,6 +1285,13 @@ void DrawSettings() {
                 snprintf(text, sizeof(text), T("PIN para las contraseñas: %s"),
                          SecretsPinEnabled() ? T("activado") : T("desactivado"));
                 break;
+            case SETTINGS_CHECK_UPDATES:
+                snprintf(text, sizeof(text), T("Buscar actualizaciones (v%s)"), PERGAMO_VERSION);
+                break;
+            case SETTINGS_AUTO_UPDATES:
+                snprintf(text, sizeof(text), T("Buscar al abrir: %s"),
+                         SettingGetLong("auto_update_check", 1) ? T("activado") : T("desactivado"));
+                break;
             case SETTINGS_DEBUG_LOG:
                 snprintf(text, sizeof(text), T("Registro de depuración: %s"),
                          DebugLogEnabled() ? T("activado") : T("desactivado"));
@@ -1211,7 +1310,7 @@ void DrawSettings() {
         DrawButton(margin * 2, y, sys_width - margin * 4, row_h, text, style);
         y += row_h + gap;
     }
-    DrawButton(margin * 2, sys_height - row_h - gap * 3, sys_width - margin * 4, row_h,
+    DrawButton(margin * 2, SettingsBackY(), sys_width - margin * 4, sys_height / 12,
                T("Volver"), 1);
 
     SetTextFont(24, 0x555555);
@@ -1228,9 +1327,9 @@ void HandleSettingsTouch(int x, int y) {
     SettingsGeometry(&margin, &gap, &hh, &row_h, &top);
     if (x < margin * 2 || x > sys_width - margin * 2) return;
 
-    int back_y = sys_height - row_h - gap * 3;
-    if (y >= back_y && y <= back_y + row_h) {
-        FlashArea(margin * 2, back_y, sys_width - margin * 4, row_h);
+    int back_y = SettingsBackY();
+    if (y >= back_y && y <= back_y + sys_height / 12) {
+        FlashArea(margin * 2, back_y, sys_width - margin * 4, sys_height / 12);
         current_state = STATE_MAIN_MENU;
         Repaint();
         return;
@@ -1253,6 +1352,13 @@ void HandleSettingsTouch(int x, int y) {
         }
         case SETTINGS_PIN:
             TogglePinProtection();
+            break;
+        case SETTINGS_CHECK_UPDATES:
+            CheckForUpdates(1);
+            break;
+        case SETTINGS_AUTO_UPDATES:
+            SettingSetLong("auto_update_check", !SettingGetLong("auto_update_check", 1));
+            Repaint();
             break;
         case SETTINGS_DEBUG_LOG: {
             int ok;
@@ -1282,7 +1388,7 @@ void HandleSettingsTouch(int x, int y) {
         case SETTINGS_ABOUT: {
             static char about[768];
             snprintf(about, sizeof(about),
-                     T("Pergamo %s\n\nCliente OPDS para lectores PocketBook: explora catálogos (Calibre-Web, COPS, Proyecto Gutenberg...) y eBiblio Madrid, y descarga libros directamente al lector.\n\ngithub.com/amiguelp/Pergamo"),
+                     T("Pergamo %s\n\nCliente OPDS para lectores PocketBook: explora catálogos (Calibre-Web, COPS, Proyecto Gutenberg...) y eBiblio Madrid, y descarga libros directamente al lector.\n\nBasado en OPDS Client.\n\ngithub.com/amiguelp/Pergamo"),
                      PERGAMO_VERSION);
             Dialog(ICON_INFORMATION, T("Acerca de"), about, "OK", NULL, CloseAboutDialog);
             break;
