@@ -242,6 +242,10 @@ int ParseOPDSFeed(const char *xml_data, const char *base_url) {
 
             GetChildNodeText(entry_node, "title", e->title, MAX_STR_LEN);
             GetAuthorName(entry_node, e->author, MAX_STR_LEN);
+            /* Fecha de publicación: Atom <published>, o dc:issued / dc:date */
+            GetChildNodeText(entry_node, "published", e->published, sizeof(e->published));
+            if (!e->published[0]) GetChildNodeText(entry_node, "issued", e->published, sizeof(e->published));
+            if (!e->published[0]) GetChildNodeText(entry_node, "date", e->published, sizeof(e->published));
             GetChildNodeText(entry_node, "summary", e->summary, 1023);
             if (strlen(e->summary) == 0) {
                 GetChildNodeText(entry_node, "content", e->summary, 1023);

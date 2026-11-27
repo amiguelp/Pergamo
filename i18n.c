@@ -487,6 +487,8 @@ static const Translation translations[] = {
      "Page %d / %d   |   Total: %d"},
     {"Página %d / %d+   |   Total: contando...",
      "Page %d / %d+   |   Total: counting..."},
+    {"%sPublicado: %.4s",
+     "%sPublished: %.4s"},
 };
 
 #define I18N_GLOBAL_CONFIG "/mnt/ext1/system/config/global.cfg"

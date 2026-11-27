@@ -2351,6 +2351,15 @@ static void BuildBookDetailSummary(const OPDSEntry *entry, char *output,
                  used ? "\n" : "", entry->ebiblio_hold_position);
     }
 
+    /* Año de publicación (Calibre usa el año 101 para "sin fecha") */
+    const char *pub = entry->published;
+    if (isdigit((unsigned char)pub[0]) && isdigit((unsigned char)pub[1]) &&
+        isdigit((unsigned char)pub[2]) && isdigit((unsigned char)pub[3]) && atoi(pub) >= 1000) {
+        size_t n = strlen(availability_info);
+        snprintf(availability_info + n, sizeof(availability_info) - n, T("%sPublicado: %.4s"),
+                 n ? "\n" : "", pub);
+    }
+
     if (availability_info[0]) {
         snprintf(output, output_size, "%s%s%s",
                  availability_info,
