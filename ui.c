@@ -194,6 +194,23 @@ void SetTextFont(int size, int color) {
     if (f) SetFont(f, color);
 }
 
+/* --- Geometría de la vista de catálogo (compartida entre dibujo y toques) ---
+   Abajo, de arriba a abajo: texto de página, barra de navegación
+   (Atrás | Buscar | Inicio | Salir) y fila de paginación. */
+#define BROWSE_NAV_BUTTONS 4
+
+static int BrowseFooterY(void) { return sys_height - sys_height / 13 - 10; }
+static int BrowseNavH(void) { return sys_height / 13; }
+static int BrowseNavY(void) { return BrowseFooterY() - sys_height / 60 - BrowseNavH(); }
+static int BrowseListBottom(void) { return BrowseNavY() - 55; }
+
+static void BrowseNavButtonRect(int index, int *x, int *w) {
+    int margin = 20, spacing = 10;
+    int bw = (sys_width - margin * 2 - spacing * (BROWSE_NAV_BUTTONS - 1)) / BROWSE_NAV_BUTTONS;
+    *x = margin + index * (bw + spacing);
+    *w = bw;
+}
+
 void DrawButton(int x, int y, int w, int h, const char *text, int style) {
     int bg_color = 0xDDDDDD; 
     int fg_color = 0x000000; 
@@ -641,7 +658,8 @@ void FetchThumbnailsForPage() {
     int row_h = sys_height / 13;
     int footer_y = sys_height - row_h - 10;
     int list_start_y = hh + gap;
-    int list_avail_h = (footer_y - 55) - list_start_y;
+    (void)footer_y;
+    int list_avail_h = BrowseListBottom() - list_start_y;
     int dynamic_row_h = list_avail_h / entries_per_page;
     int icon_h = dynamic_row_h - 10, book_w = (int)(icon_h / 1.4);
 
@@ -1061,17 +1079,8 @@ static void OpenEditServerFormNow(void) {
 void DrawMainMenu() {
     SetPanelType(0); nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0;
     int margin = sys_width / 20, gap = sys_height / 60, hh = sys_height / 14, row_h = sys_height / 12;
-    int settings_w = sys_width / 4;
-    int settings_x = sys_width - margin * 2 - settings_w;
-    int settings_y = gap;
-    int settings_h = hh - gap;
     SetTextFont(48, 0x000000);
-    DrawTextRect(0, gap, settings_x - gap, 60, T("Biblioteca OPDS"), ALIGN_CENTER);
-    FillArea(settings_x, settings_y, settings_w, settings_h, 0xDDDDDD);
-    DrawRect(settings_x, settings_y, settings_w, settings_h, 0x000000);
-    SetTextFont(24, 0x000000);
-    DrawTextRect(settings_x, settings_y + (settings_h - 30) / 2, settings_w, 30,
-                 T("Configuración"), ALIGN_CENTER);
+    DrawTextRect(0, gap, sys_width, 60, T("Biblioteca OPDS"), ALIGN_CENTER);
     DrawLine(margin, hh, sys_width - margin, hh, 0x000000);
     int y = hh + gap; SetTextFont(36, 0x000000);
     for (int i = 0; i < server_count; i++) {
@@ -1083,6 +1092,8 @@ void DrawMainMenu() {
     y += gap; 
     DrawButton(margin * 2, y, sys_width - (margin * 4), row_h, T("+ Agregar servidor"), 0);
     DrawButton(margin * 2, y + row_h + gap, sys_width - (margin * 4), row_h,
+               T("Configuración"), 0);
+    DrawButton(margin * 2, y + (row_h + gap) * 2, sys_width - (margin * 4), row_h,
                T("Salir de la aplicación"), 2);
 
     if (credentials_warning[0]) {
@@ -1101,17 +1112,6 @@ void DrawMainMenu() {
 
 void HandleMainMenuTouch(int x, int y) {
     int margin = sys_width / 20, gap = sys_height / 60, hh = sys_height / 14, row_h = sys_height / 12, list_y = hh + gap;
-    int settings_w = sys_width / 4;
-    int settings_x = sys_width - margin * 2 - settings_w;
-    int settings_y = gap;
-    int settings_h = hh - gap;
-    if (x >= settings_x && x <= settings_x + settings_w &&
-        y >= settings_y && y <= settings_y + settings_h) {
-        FlashArea(settings_x, settings_y, settings_w, settings_h);
-        current_state = STATE_SETTINGS;
-        Repaint();
-        return;
-    }
 
     for (int i = 0; i < server_count; i++) {
         if (y >= list_y && y <= list_y + row_h) {
@@ -1129,7 +1129,15 @@ void HandleMainMenuTouch(int x, int y) {
         FlashArea(margin * 2, add_y, sys_width - (margin * 4), row_h);
         RequirePin(OpenNewServerFormNow); return; 
     } 
-    int action_y = add_y + row_h + gap;
+    int settings_y = add_y + row_h + gap;
+    if (x >= margin * 2 && x <= sys_width - margin * 2 &&
+        y >= settings_y && y <= settings_y + row_h) {
+        FlashArea(margin * 2, settings_y, sys_width - margin * 4, row_h);
+        current_state = STATE_SETTINGS;
+        Repaint();
+        return;
+    }
+    int action_y = settings_y + row_h + gap;
     if (x >= margin * 2 && x <= sys_width - margin * 2 &&
         y >= action_y && y <= action_y + row_h) {
         FlashArea(margin * 2, action_y, sys_width - margin * 4, row_h);
@@ -1362,7 +1370,8 @@ void DrawServerOptions() {
         DrawButton(bx, top_y + (row_h + gap) * 2, bw, row_h, T("Editar datos"), 0);
     }
 
-    int mid_y = sys_height / 2;
+    /* Mismo espaciado que el resto de botones. */
+    int mid_y = top_y + (row_h + gap) * (is_ebiblio ? 3 : 2);
     DrawButton(bx, mid_y, bw, row_h, T("Eliminar servidor"), 2);
 
     DrawButton(m, sys_height - 110, sys_width - (m * 2), 90, T("Menú principal"), 1);
@@ -1372,7 +1381,7 @@ void HandleServerOptionsTouch(int x, int y) {
     int gap = sys_height / 40;
     int row_h = sys_height / 12;
     int top_y = sys_height / 5;
-    int mid_y = sys_height / 2;
+    int mid_y = top_y + (row_h + gap) * (IsEbiblioURL(servers[current_server_index].url) ? 3 : 2);
     int bw = sys_width - (sys_width / 4);
     int bx = sys_width / 8;
     int m = sys_width / 20;
@@ -1522,16 +1531,9 @@ void DrawBrowsingView() {
     int footer_y = sys_height - row_h - 10; 
 
     FillArea(0, 0, sys_width, hh, top_bg);
-    
-    int btn_w = sys_width / 9;
-    if (btn_w < 100) btn_w = 100; 
-    int btn_h = hh / 2, btn_y = hh / 4;
 
-    int back_x = sys_width - btn_w - 10;
-    int home_x = back_x - btn_w - 10;
-    int search_x = home_x - btn_w - 10;
-    int exit_x = 10;
-    int title_x = exit_x + btn_w + 20, title_w = search_x - title_x - 20;
+    /* El título ocupa toda la cabecera; tocarlo vuelve a las opciones del servidor. */
+    int title_x = 20, title_w = sys_width - 40;
 
     SetTextFont(24, top_sub_fg);
     const char *display_title = (strlen(current_feed_title) > 0) ? current_feed_title : last_loaded_url;
@@ -1540,13 +1542,19 @@ void DrawBrowsingView() {
     SetTextFont(36, top_fg); 
     DrawTextRect(title_x, hh / 6, title_w, 40, T("Catálogo"), ALIGN_LEFT | DOTS);
 
-    DrawButton(search_x, btn_y, btn_w, btn_h, T("BUSCAR"), 0);
-    DrawButton(home_x, btn_y, btn_w, btn_h, T("INICIO"), 0); 
-    DrawButton(back_x, btn_y, btn_w, btn_h, T("ATRÁS"), 0); 
-    DrawButton(exit_x, btn_y, btn_w, btn_h, T("SALIR"), 2);
+    /* Barra de navegación abajo, con botones grandes. */
+    {
+        static const char *labels[BROWSE_NAV_BUTTONS] = { "ATRÁS", "BUSCAR", "INICIO", "SALIR" };
+        int nav_y = BrowseNavY(), nav_h = BrowseNavH();
+        for (int i = 0; i < BROWSE_NAV_BUTTONS; i++) {
+            int bx, bw;
+            BrowseNavButtonRect(i, &bx, &bw);
+            DrawButton(bx, nav_y, bw, nav_h, T(labels[i]), i == BROWSE_NAV_BUTTONS - 1 ? 2 : 0);
+        }
+    }
 
     int list_start_y = hh + gap;
-    int list_avail_h = (footer_y - 55) - list_start_y;
+    int list_avail_h = BrowseListBottom() - list_start_y;
     int dynamic_row_h = list_avail_h / entries_per_page;
     int y = list_start_y; 
     
@@ -1578,7 +1586,7 @@ void DrawBrowsingView() {
         int text_x = 20 + icon_h + 15, text_w = sys_width - text_x - 20;
 
         for (int i = start; i < end; i++) {
-            if (y + dynamic_row_h > footer_y - 55) break;
+            if (y + dynamic_row_h > BrowseListBottom()) break;
             int icon_y = y + 5;
 
             if (current_entries[i].is_book) {
@@ -1646,7 +1654,7 @@ void DrawBrowsingView() {
         }
         
         SetTextFont(24, 0x555555); 
-        DrawTextRect(0, footer_y - 45, sys_width, 30, page_txt, ALIGN_CENTER);
+        DrawTextRect(0, BrowseNavY() - 45, sys_width, 30, page_txt, ALIGN_CENTER);
         
         if (current_page > 0 || page_stack_ptr > 0) DrawButton(20, footer_y, sys_width/2 - 30, row_h, T("<< ANTERIOR"), 0);
         if (end < entry_count) DrawButton(sys_width/2 + 10, footer_y, sys_width/2 - 30, row_h, T("SIGUIENTE >>"), 0);
@@ -1710,27 +1718,37 @@ void HandleBrowsingTouch(int x, int y) {
     int hh = sys_height / 14, row_h = sys_height / 13, gap = sys_height / 60, footer_y = sys_height - row_h - 10;
 
     if (y <= hh) {
-        int btn_w = sys_width / 9; if (btn_w < 100) btn_w = 100;
-        int btn_h = hh / 2, btn_y = hh / 4;
-        int back_x = sys_width - btn_w - 10, home_x = back_x - btn_w - 10, search_x = home_x - btn_w - 10, exit_x = 10;
-        int title_x = exit_x + btn_w + 20, title_w = search_x - title_x - 20;
+        /* Tocar el título vuelve a las opciones del servidor. */
+        FlashArea(0, 0, sys_width, hh);
+        nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0; current_state = STATE_SERVER_OPTIONS; Repaint();
+        return;
+    }
 
-        if (x >= search_x && x <= search_x + btn_w) {
-            FlashArea(search_x, btn_y, btn_w, btn_h);
-            memset(search_input_buffer, 0, sizeof(search_input_buffer));
-            OpenKeyboard(T("Buscar en el catálogo:"), search_input_buffer, 255, 0, PerformSearch);
-        } else if (x >= home_x && x <= home_x + btn_w) { 
-            FlashArea(home_x, btn_y, btn_w, btn_h);
-            nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0; current_page = 0; LoadCatalog(servers[current_server_index].url); 
-        } else if (x >= back_x && x <= back_x + btn_w) { 
-            FlashArea(back_x, btn_y, btn_w, btn_h);
-            GoBackInHierarchy(); 
-        } else if (x >= exit_x && x <= exit_x + btn_w) { 
-            FlashArea(exit_x, btn_y, btn_w, btn_h);
-            Message(ICON_INFORMATION, T("Saliendo"), T("Limpiando..."), 0); Repaint(); ManageImageCache(); TriggerLibraryRefresh(); CloseApp(); 
-        } else if (x >= title_x && x <= title_x + title_w) {
-            FlashArea(title_x, hh / 6, title_w, 40); 
-            nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0; current_state = STATE_SERVER_OPTIONS; Repaint();
+    int nav_y = BrowseNavY(), nav_h = BrowseNavH();
+    if (y >= nav_y && y <= nav_y + nav_h) {
+        for (int i = 0; i < BROWSE_NAV_BUTTONS; i++) {
+            int bx, bw;
+            BrowseNavButtonRect(i, &bx, &bw);
+            if (x < bx || x > bx + bw) continue;
+            FlashArea(bx, nav_y, bw, nav_h);
+            switch (i) {
+                case 0: /* Atrás */
+                    GoBackInHierarchy();
+                    break;
+                case 1: /* Buscar */
+                    memset(search_input_buffer, 0, sizeof(search_input_buffer));
+                    OpenKeyboard(T("Buscar en el catálogo:"), search_input_buffer, 255, 0, PerformSearch);
+                    break;
+                case 2: /* Inicio */
+                    nav_stack_ptr = 0; page_stack_ptr = 0; current_global_offset = 0; current_page = 0;
+                    LoadCatalog(servers[current_server_index].url);
+                    break;
+                case 3: /* Salir */
+                    Message(ICON_INFORMATION, T("Saliendo"), T("Limpiando..."), 0); Repaint();
+                    ManageImageCache(); TriggerLibraryRefresh(); CloseApp();
+                    break;
+            }
+            return;
         }
         return;
     }
@@ -1761,7 +1779,7 @@ void HandleBrowsingTouch(int x, int y) {
     }
     
     int list_start_y = hh + gap;
-    int list_avail_h = (footer_y - 55) - list_start_y;
+    int list_avail_h = BrowseListBottom() - list_start_y;
     int dynamic_row_h = list_avail_h / entries_per_page;
     int start = current_page * entries_per_page, ly = list_start_y;
     for (int i = start; i < start + entries_per_page && i < entry_count; i++) {
@@ -1820,7 +1838,7 @@ void HandleBrowsingTouch(int x, int y) {
             } 
             return;
         } 
-        ly += dynamic_row_h; if (ly + dynamic_row_h > footer_y - 55) break;
+        ly += dynamic_row_h; if (ly + dynamic_row_h > BrowseListBottom()) break;
     }
 }
 
